@@ -1,0 +1,31 @@
+currentProject: myapp
+defaultBrowser: firefox  # Global default browser
+projects:
+  - name: myapp
+    path: /home/user/projects/myapp
+    description: My main application
+    browser: chrome  # Project-level browser (overrides global default)
+    commands:
+      - key: docs
+        url: https://docs.myapp.com
+        # Uses project browser (chrome)
+      - key: staging
+        url: https://staging.myapp.com
+        browser: edge  # Command-level browser (overrides project and global)
+      - key: prod
+        url: https://app.myapp.com
+        # Uses project browser (chrome)
+      - key: github
+        url: https://github.com/user/myapp
+        browser: firefox  # Command-level browser
+  - name: website
+    path: /home/user/projects/website
+    description: Company website
+    # No project-level browser, uses global default (firefox)
+    commands:
+      - key: dev
+        url: http://localhost:3000
+        # Uses global default browser (firefox)
+      - key: prod
+        url: https://example.com
+        browser: chrome  # Command-level browser
