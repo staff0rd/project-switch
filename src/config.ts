@@ -1,7 +1,7 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import * as yaml from 'js-yaml';
+import * as fs from "fs";
+import * as yaml from "js-yaml";
+import * as os from "os";
+import * as path from "path";
 
 export interface ProjectCommand {
   key: string;
@@ -23,7 +23,7 @@ export interface Config {
   projects: Project[];
 }
 
-const CONFIG_PATH = path.join(os.homedir(), 'project-switch.yml');
+const CONFIG_PATH = path.join(os.homedir(), ".project-switch.yml");
 
 export class ConfigManager {
   private config: Config;
@@ -35,11 +35,11 @@ export class ConfigManager {
   private loadConfig(): Config {
     try {
       if (fs.existsSync(CONFIG_PATH)) {
-        const fileContents = fs.readFileSync(CONFIG_PATH, 'utf8');
-        return yaml.load(fileContents) as Config || { projects: [] };
+        const fileContents = fs.readFileSync(CONFIG_PATH, "utf8");
+        return (yaml.load(fileContents) as Config) || { projects: [] };
       }
     } catch (error) {
-      console.error('Error loading config:', error);
+      console.error("Error loading config:", error);
     }
     return { projects: [] };
   }
@@ -47,9 +47,9 @@ export class ConfigManager {
   private saveConfig(): void {
     try {
       const yamlStr = yaml.dump(this.config);
-      fs.writeFileSync(CONFIG_PATH, yamlStr, 'utf8');
+      fs.writeFileSync(CONFIG_PATH, yamlStr, "utf8");
     } catch (error) {
-      console.error('Error saving config:', error);
+      console.error("Error saving config:", error);
       throw error;
     }
   }
@@ -63,7 +63,7 @@ export class ConfigManager {
   }
 
   setCurrentProject(projectName: string): void {
-    const project = this.config.projects.find(p => p.name === projectName);
+    const project = this.config.projects.find((p) => p.name === projectName);
     if (!project) {
       throw new Error(`Project "${projectName}" not found`);
     }
@@ -72,7 +72,7 @@ export class ConfigManager {
   }
 
   addProject(project: Project): void {
-    const existing = this.config.projects.find(p => p.name === project.name);
+    const existing = this.config.projects.find((p) => p.name === project.name);
     if (existing) {
       throw new Error(`Project "${project.name}" already exists`);
     }
@@ -84,22 +84,25 @@ export class ConfigManager {
   }
 
   projectExists(name: string): boolean {
-    return this.config.projects.some(p => p.name === name);
+    return this.config.projects.some((p) => p.name === name);
   }
 
   getProject(name: string): Project | undefined {
-    return this.config.projects.find(p => p.name === name);
+    return this.config.projects.find((p) => p.name === name);
   }
 
-  getProjectCommand(projectName: string, commandKey: string): ProjectCommand | undefined {
+  getProjectCommand(
+    projectName: string,
+    commandKey: string
+  ): ProjectCommand | undefined {
     const project = this.getProject(projectName);
     if (!project || !project.commands) {
       return undefined;
     }
-    return project.commands.find(c => c.key === commandKey);
+    return project.commands.find((c) => c.key === commandKey);
   }
 
   getDefaultBrowser(): string {
-    return this.config.defaultBrowser || 'firefox';
+    return this.config.defaultBrowser || "firefox";
   }
 }
