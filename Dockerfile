@@ -23,6 +23,7 @@ RUN cargo build --release --target x86_64-pc-windows-gnu
 RUN cargo build --release --target x86_64-unknown-linux-gnu
 
 # Final stage - copy binaries out
-FROM scratch as export
-COPY --from=builder /app/target/x86_64-pc-windows-gnu/release/project-switch.exe /windows/
-COPY --from=builder /app/target/x86_64-unknown-linux-gnu/release/project-switch /linux/
+FROM alpine:latest as export
+RUN mkdir -p /output/windows /output/linux
+COPY --from=builder /app/target/x86_64-pc-windows-gnu/release/project-switch.exe /output/windows/
+COPY --from=builder /app/target/x86_64-unknown-linux-gnu/release/project-switch /output/linux/

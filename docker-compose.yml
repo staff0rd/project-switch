@@ -7,8 +7,8 @@ services:
       dockerfile: Dockerfile
       target: export
     volumes:
-      - ./bin:/output
-    command: sh -c "cp -r /windows /linux /output/"
+      - ./bin:/app_output
+    command: sh -c "cp -r /output/* /app_output/"
     profiles:
       - build
 

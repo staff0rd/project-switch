@@ -6,7 +6,8 @@
       "Bash(npm run build:*)",
       "Bash(mkdir:*)",
       "Bash(rm:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Bash(docker create:*)"
     ],
     "deny": []
   }
