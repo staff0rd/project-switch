@@ -1,5 +1,5 @@
-node_modules/
-dist/
+target/
+bin/
 *.log
 .env
 .DS_Store
