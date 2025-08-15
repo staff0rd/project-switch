@@ -1,7 +1,7 @@
 use crate::config::ConfigManager;
+use crate::utils::browser;
 use anyhow::Result;
 use colored::*;
-use std::process::Command;
 
 pub fn execute(key: &str) -> Result<()> {
     let config_manager = ConfigManager::new()?;
@@ -29,50 +29,7 @@ pub fn execute(key: &str) -> Result<()> {
         .or(project.browser.as_deref())
         .unwrap_or_else(|| config_manager.get_default_browser());
 
-    let cmd_result = if cfg!(target_os = "windows") {
-        if browser.to_lowercase() == "default" {
-            Command::new("cmd")
-                .args(&["/C", "start", "", url])
-                .status()
-        } else {
-            Command::new("cmd")
-                .args(&["/C", "start", browser, url])
-                .status()
-        }
-    } else if cfg!(target_os = "macos") {
-        if browser.to_lowercase() == "default" {
-            Command::new("open")
-                .arg(url)
-                .status()
-        } else {
-            Command::new("open")
-                .args(&["-a", browser, url])
-                .status()
-        }
-    } else {
-        // Linux/Unix
-        if browser.to_lowercase() == "default" {
-            Command::new("xdg-open")
-                .arg(url)
-                .status()
-        } else {
-            Command::new(browser)
-                .arg(url)
-                .status()
-        }
-    };
-
-    match cmd_result {
-        Ok(status) if status.success() => {
-            println!("{}", format!("Opening {} in {}...", url, browser).green());
-        }
-        Ok(_) => {
-            anyhow::bail!("Failed to open URL");
-        }
-        Err(e) => {
-            anyhow::bail!("Error opening URL: {}", e);
-        }
-    }
+    browser::open_url_in_browser(url, browser)?;
 
     Ok(())
 }

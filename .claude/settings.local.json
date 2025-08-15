@@ -13,7 +13,8 @@
       "Bash(./bin/windows/project-switch.exe current)",
       "Bash(./bin/windows/project-switch.exe:*)",
       "Bash(find:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(./build.ps1)"
     ],
     "deny": []
   }

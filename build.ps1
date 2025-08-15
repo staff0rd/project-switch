@@ -8,8 +8,15 @@ Write-Host "Processes stopped."
 # Delete the bin folder if it exists
 Write-Host "Removing bin folder..."
 if (Test-Path "bin") {
-    Remove-Item -Path "bin" -Recurse -Force
-    Write-Host "bin folder removed."
+    try {
+        Remove-Item -Path "bin" -Recurse -Force -ErrorAction Stop
+        Write-Host "bin folder removed."
+    }
+    catch {
+        Write-Error "Failed to remove bin folder. Build may be incomplete."
+        Write-Error $_.Exception.Message
+        exit 1
+    }
 } else {
     Write-Host "bin folder does not exist."
 }
