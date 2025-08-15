@@ -4,8 +4,8 @@ When running the program, use powershell.
 
 To build the project, use Docker Compose:
 
-```bash
-docker compose up build
+```powershell
+./build.ps1
 ```
 
 Building should happen after a set of changes are implemented to confirm no compilation errors.

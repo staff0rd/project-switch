@@ -29,6 +29,8 @@ enum Commands {
         /// Command key
         key: String,
     },
+    /// List all openable items from the current project (interactive)
+    List,
 }
 
 fn main() -> Result<()> {
@@ -46,6 +48,9 @@ fn main() -> Result<()> {
         }
         Commands::Open { key } => {
             commands::open::execute(&key)?;
+        }
+        Commands::List => {
+            commands::list::execute()?;
         }
     }
 

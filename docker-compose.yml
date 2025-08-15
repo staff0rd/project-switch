@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   build:
     build:
@@ -8,9 +6,4 @@ services:
       target: export
     volumes:
       - ./bin:/app_output
-    command: sh -c "cp -r /output/* /app_output/"
-    profiles:
-      - build
-
-volumes:
-  output:
+    command: sh -c "cp -r /output/. /app_output/"

@@ -7,7 +7,13 @@
       "Bash(mkdir:*)",
       "Bash(rm:*)",
       "Bash(docker compose:*)",
-      "Bash(docker create:*)"
+      "Bash(docker create:*)",
+      "Bash(.\\bin\\windows\\project-switch.exe:*)",
+      "Bash(./bin/windows/project-switch.exe list)",
+      "Bash(./bin/windows/project-switch.exe current)",
+      "Bash(./bin/windows/project-switch.exe:*)",
+      "Bash(find:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }
