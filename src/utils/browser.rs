@@ -5,7 +5,18 @@ use std::process::Command;
 pub fn open_command_with_args(command: &str, browser: &str, args: Option<&str>) -> Result<()> {
     // Check if the command is a URL (starts with http)
     if command.starts_with("http") {
-        open_url_in_browser(command, browser)
+        // If there are arguments, append them to the URL with proper encoding
+        if let Some(args_str) = args {
+            if !args_str.is_empty() {
+                let encoded_args = urlencoding::encode(args_str);
+                let url_with_args = format!("{}{}", command, encoded_args);
+                open_url_in_browser(&url_with_args, browser)
+            } else {
+                open_url_in_browser(command, browser)
+            }
+        } else {
+            open_url_in_browser(command, browser)
+        }
     } else {
         // It's a terminal command, run it directly
         run_terminal_command(command, args)
