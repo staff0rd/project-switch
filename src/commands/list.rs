@@ -184,7 +184,7 @@ pub fn execute() -> Result<()> {
         (None, None) => None,
     };
 
-    browser::open_command_with_args(url, browser, final_args.as_deref())?;
+    browser::open_command_with_args(url, browser, final_args.as_deref(), selected_command.url_encode)?;
 
     Ok(())
 }

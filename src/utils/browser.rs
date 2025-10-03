@@ -2,14 +2,18 @@ use anyhow::Result;
 use colored::*;
 use std::process::Command;
 
-pub fn open_command_with_args(command: &str, browser: &str, args: Option<&str>) -> Result<()> {
+pub fn open_command_with_args(command: &str, browser: &str, args: Option<&str>, url_encode: bool) -> Result<()> {
     // Check if the command is a URL (starts with http)
     if command.starts_with("http") {
-        // If there are arguments, append them to the URL with proper encoding
+        // If there are arguments, append them to the URL with optional encoding
         if let Some(args_str) = args {
             if !args_str.is_empty() {
-                let encoded_args = urlencoding::encode(args_str);
-                let url_with_args = format!("{}{}", command, encoded_args);
+                let url_with_args = if url_encode {
+                    let encoded_args = urlencoding::encode(args_str);
+                    format!("{}{}", command, encoded_args)
+                } else {
+                    format!("{}{}", command, args_str)
+                };
                 open_url_in_browser(&url_with_args, browser)
             } else {
                 open_url_in_browser(command, browser)

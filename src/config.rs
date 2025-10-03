@@ -9,6 +9,8 @@ pub struct ProjectCommand {
     pub url: Option<String>,
     pub browser: Option<String>,
     pub args: Option<String>,
+    #[serde(default)]
+    pub url_encode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
