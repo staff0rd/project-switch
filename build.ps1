@@ -17,7 +17,8 @@ if (Test-Path "bin") {
         Write-Error $_.Exception.Message
         exit 1
     }
-} else {
+}
+else {
     Write-Host "bin folder does not exist."
 }
 
@@ -25,7 +26,7 @@ if (Test-Path "bin") {
 Write-Host "Building Docker container and running build service..."
 
 # Capture output and only show on failure
-$buildOutput = docker compose build --no-cache 2>&1
+$buildOutput = docker compose build 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Docker build failed:"
     Write-Host $buildOutput

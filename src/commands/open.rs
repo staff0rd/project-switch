@@ -19,7 +19,7 @@ pub fn execute(key: &str) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Current project not found"))?;
 
     let command = config_manager.get_project_command(current_project_name, key)
-        .ok_or_else(|| anyhow::anyhow!("Command with key '{}' not found in project '{}'", key, current_project_name))?;
+        .ok_or_else(|| anyhow::anyhow!("Command with key '{}' not found in project '{}' or global commands", key, current_project_name))?;
 
     let url = command.url.as_ref()
         .ok_or_else(|| anyhow::anyhow!("Command '{}' does not have a URL configured", key))?;
@@ -29,7 +29,7 @@ pub fn execute(key: &str) -> Result<()> {
         .or(project.browser.as_deref())
         .unwrap_or_else(|| config_manager.get_default_browser());
 
-    browser::open_url_in_browser(url, browser)?;
+    browser::open_command_with_args(url, browser, command.args.as_deref())?;
 
     Ok(())
 }

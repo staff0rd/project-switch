@@ -2,6 +2,58 @@ use anyhow::Result;
 use colored::*;
 use std::process::Command;
 
+pub fn open_command_with_args(command: &str, browser: &str, args: Option<&str>) -> Result<()> {
+    // Check if the command is a URL (starts with http)
+    if command.starts_with("http") {
+        open_url_in_browser(command, browser)
+    } else {
+        // It's a terminal command, run it directly
+        run_terminal_command(command, args)
+    }
+}
+
+fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
+    let cmd_result = if cfg!(target_os = "windows") {
+        let mut cmd = Command::new("powershell");
+        cmd.args(&["-Command", command]);
+        
+        if let Some(args_str) = args {
+            if !args_str.is_empty() {
+                cmd.arg(args_str);
+            }
+        }
+        
+        cmd.spawn()
+    } else {
+        let mut full_command = command.to_string();
+        
+        if let Some(args_str) = args {
+            if !args_str.is_empty() {
+                full_command.push(' ');
+                full_command.push_str(args_str);
+            }
+        }
+        
+        Command::new("sh")
+            .args(&["-c", &full_command])
+            .spawn()
+    };
+
+    match cmd_result {
+        Ok(_) => {
+            let args_str = args
+                .filter(|s| !s.is_empty())
+                .map(|a| format!(" {}", a))
+                .unwrap_or_default();
+            println!("{}", format!("Running command: {}{}", command, args_str).green());
+            Ok(())
+        }
+        Err(e) => {
+            anyhow::bail!("Error running command: {}", e);
+        }
+    }
+}
+
 pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
         if browser.to_lowercase() == "default" {

@@ -8,6 +8,7 @@ pub struct ProjectCommand {
     pub key: String,
     pub url: Option<String>,
     pub browser: Option<String>,
+    pub args: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +26,7 @@ pub struct Config {
     pub current_project: Option<String>,
     #[serde(rename = "defaultBrowser")]
     pub default_browser: Option<String>,
+    pub global: Option<Vec<ProjectCommand>>,
     pub projects: Vec<Project>,
 }
 
@@ -33,6 +35,7 @@ impl Default for Config {
         Self {
             current_project: None,
             default_browser: None,
+            global: None,
             projects: Vec::new(),
         }
     }
@@ -121,14 +124,26 @@ impl ConfigManager {
     }
 
     pub fn get_project_command(&self, project_name: &str, command_key: &str) -> Option<&ProjectCommand> {
-        self.get_project(project_name)?
+        // First check project-specific commands
+        if let Some(project_command) = self.get_project(project_name)?
             .commands
-            .as_ref()?
-            .iter()
-            .find(|c| c.key == command_key)
+            .as_ref()
+            .and_then(|cmds| cmds.iter().find(|c| c.key == command_key))
+        {
+            return Some(project_command);
+        }
+        
+        // Fall back to global commands
+        self.config.global
+            .as_ref()
+            .and_then(|cmds| cmds.iter().find(|c| c.key == command_key))
     }
 
     pub fn get_default_browser(&self) -> &str {
         self.config.default_browser.as_deref().unwrap_or("firefox")
+    }
+
+    pub fn get_global_commands(&self) -> Option<&Vec<ProjectCommand>> {
+        self.config.global.as_ref()
     }
 }

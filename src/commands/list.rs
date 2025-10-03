@@ -20,17 +20,29 @@ pub fn execute() -> Result<()> {
     let project = config_manager.get_project(current_project_name)
         .ok_or_else(|| anyhow::anyhow!("Current project not found"))?;
 
-    let commands = match &project.commands {
-        Some(commands) if !commands.is_empty() => commands,
-        _ => {
-            println!("{}", format!("No openable items found in project '{}'", current_project_name).yellow());
-            println!("{}", "Use \"project-switch add\" to add commands to your project".blue());
-            return Ok(());
-        }
-    };
+    // Collect commands from both project and global
+    let mut all_commands = Vec::new();
+    
+    // Add project-specific commands
+    if let Some(project_commands) = &project.commands {
+        all_commands.extend(project_commands.iter().cloned());
+    }
+    
+    // Add global commands
+    if let Some(global_commands) = config_manager.get_global_commands() {
+        all_commands.extend(global_commands.iter().cloned());
+    }
 
-    let mut sorted_commands = commands.clone();
+    if all_commands.is_empty() {
+        println!("{}", format!("No openable items found in project '{}' or global commands", current_project_name).yellow());
+        println!("{}", "Use \"project-switch add\" to add commands to your project".blue());
+        return Ok(());
+    }
+
+    let mut sorted_commands = all_commands;
     sorted_commands.sort_by(|a, b| a.key.cmp(&b.key));
+    // Remove duplicates, keeping project-specific commands over global ones
+    sorted_commands.dedup_by(|a, b| a.key == b.key);
 
     let options: Vec<String> = sorted_commands
         .iter()
@@ -65,7 +77,7 @@ pub fn execute() -> Result<()> {
         .or(project.browser.as_deref())
         .unwrap_or_else(|| config_manager.get_default_browser());
 
-    browser::open_url_in_browser(url, browser)?;
+    browser::open_command_with_args(url, browser, selected_command.args.as_deref())?;
 
     Ok(())
 }
