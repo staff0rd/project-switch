@@ -72,8 +72,22 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
                 .args(&["-Command", &format!("Set-Location C:\\; Start-Process '{}'", url)])
                 .status()
         } else {
+            // Parse browser string to handle command + args (e.g., "firefox -P someProfile")
+            let parts: Vec<&str> = browser.split_whitespace().collect();
+            let (browser_cmd, browser_args) = if parts.len() > 1 {
+                (parts[0], parts[1..].join(" "))
+            } else {
+                (browser, String::new())
+            };
+            
+            let ps_command = if browser_args.is_empty() {
+                format!("Set-Location C:\\; Start-Process '{}' '{}'", browser_cmd, url)
+            } else {
+                format!("Set-Location C:\\; Start-Process '{}' '{} {}'", browser_cmd, browser_args, url)
+            };
+            
             Command::new("powershell")
-                .args(&["-Command", &format!("Set-Location C:\\; Start-Process '{}' '{}'", browser, url)])
+                .args(&["-Command", &ps_command])
                 .status()
         }
     } else if cfg!(target_os = "macos") {
@@ -82,9 +96,25 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
                 .arg(url)
                 .status()
         } else {
-            Command::new("open")
-                .args(&["-a", browser, url])
-                .status()
+            // Parse browser string to handle command + args (e.g., "firefox -P someProfile")
+            let parts: Vec<&str> = browser.split_whitespace().collect();
+            if parts.len() > 1 {
+                // Browser has arguments
+                let browser_cmd = parts[0];
+                let mut cmd = Command::new("open");
+                cmd.args(&["-a", browser_cmd]);
+                // Add additional args
+                cmd.arg("--args");
+                for arg in &parts[1..] {
+                    cmd.arg(arg);
+                }
+                cmd.arg(url);
+                cmd.status()
+            } else {
+                Command::new("open")
+                    .args(&["-a", browser, url])
+                    .status()
+            }
         }
     } else {
         // Linux/Unix
@@ -93,9 +123,22 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
                 .arg(url)
                 .status()
         } else {
-            Command::new(browser)
-                .arg(url)
-                .status()
+            // Parse browser string to handle command + args (e.g., "firefox -P someProfile")
+            let parts: Vec<&str> = browser.split_whitespace().collect();
+            if parts.len() > 1 {
+                // Browser has arguments
+                let browser_cmd = parts[0];
+                let mut cmd = Command::new(browser_cmd);
+                for arg in &parts[1..] {
+                    cmd.arg(arg);
+                }
+                cmd.arg(url);
+                cmd.status()
+            } else {
+                Command::new(browser)
+                    .arg(url)
+                    .status()
+            }
         }
     };
 
