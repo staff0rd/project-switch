@@ -4,7 +4,7 @@
   "description": "Fast CLI tool to manage and switch between projects. Rewritten in Rust for blazing fast performance.",
   "main": "index.js",
   "scripts": {
-    "commit": "ts-node scripts/commit.ts"
+    "commit": "tsx scripts/commit.ts"
   },
   "repository": {
     "type": "git",

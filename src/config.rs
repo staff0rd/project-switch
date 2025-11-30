@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
 use std::fs;
 use std::path::PathBuf;
 
@@ -59,6 +60,7 @@ impl Default for Config {
 pub struct ConfigManager {
     config: Config,
     config_path: PathBuf,
+    raw_yaml: Option<Value>,
 }
 
 impl ConfigManager {
@@ -66,33 +68,60 @@ impl ConfigManager {
         let config_path = dirs::home_dir()
             .context("Unable to determine home directory")?
             .join(".project-switch.yml");
-        
-        let config = Self::load_config(&config_path)?;
-        
-        Ok(Self { config, config_path })
+
+        let (config, raw_yaml) = Self::load_config(&config_path)?;
+
+        Ok(Self { config, config_path, raw_yaml })
     }
 
-    fn load_config(path: &PathBuf) -> Result<Config> {
+    fn load_config(path: &PathBuf) -> Result<(Config, Option<Value>)> {
         if path.exists() {
             let contents = fs::read_to_string(path)
                 .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-            
+
             let config: Config = serde_yaml::from_str(&contents)
                 .context("Failed to parse config file")?;
-            
-            Ok(config)
+
+            let raw_yaml: Value = serde_yaml::from_str(&contents)
+                .context("Failed to parse config file as raw YAML")?;
+
+            Ok((config, Some(raw_yaml)))
         } else {
-            Ok(Config::default())
+            Ok((Config::default(), None))
         }
     }
 
-    fn save_config(&self) -> Result<()> {
-        let yaml = serde_yaml::to_string(&self.config)
+    fn save_config(&mut self) -> Result<()> {
+        let yaml_value = if let Some(ref mut raw) = self.raw_yaml {
+            // Update the raw YAML with current config values while preserving order
+            if let Value::Mapping(ref mut map) = raw {
+                // Update currentProject
+                let current_project_key = Value::String("currentProject".to_string());
+                if let Some(ref current) = self.config.current_project {
+                    map.insert(current_project_key, Value::String(current.clone()));
+                } else {
+                    map.remove(&current_project_key);
+                }
+
+                // Update projects array
+                let projects_key = Value::String("projects".to_string());
+                let projects_value = serde_yaml::to_value(&self.config.projects)
+                    .context("Failed to serialize projects")?;
+                map.insert(projects_key, projects_value);
+            }
+            raw.clone()
+        } else {
+            // No existing file, serialize the whole config
+            serde_yaml::to_value(&self.config)
+                .context("Failed to serialize config")?
+        };
+
+        let yaml = serde_yaml::to_string(&yaml_value)
             .context("Failed to serialize config")?;
-        
+
         fs::write(&self.config_path, yaml)
             .with_context(|| format!("Failed to write config file: {}", self.config_path.display()))?;
-        
+
         Ok(())
     }
 
