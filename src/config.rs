@@ -3,31 +3,44 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+// Helper function to skip serializing false values
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectCommand {
     pub key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub url_encode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub commands: Option<Vec<ProjectCommand>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(rename = "currentProject")]
+    #[serde(rename = "currentProject", skip_serializing_if = "Option::is_none")]
     pub current_project: Option<String>,
-    #[serde(rename = "defaultBrowser")]
+    #[serde(rename = "defaultBrowser", skip_serializing_if = "Option::is_none")]
     pub default_browser: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub global: Option<Vec<ProjectCommand>>,
     pub projects: Vec<Project>,
 }

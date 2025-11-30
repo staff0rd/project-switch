@@ -1,5 +1,5 @@
 # Multi-stage build for cross-platform Rust compilation
-FROM rust:1.75 as builder
+FROM rust:1.82 as builder
 
 # Install cross-compilation tools
 RUN apt-get update && apt-get install -y \

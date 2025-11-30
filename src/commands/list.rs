@@ -4,6 +4,29 @@ use anyhow::Result;
 use colored::*;
 use inquire::Autocomplete;
 
+fn strip_ansi_codes(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Skip the escape sequence
+            if chars.next() == Some('[') {
+                // Skip until we find a letter (end of escape sequence)
+                for ch in chars.by_ref() {
+                    if ch.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 #[derive(Clone)]
 struct CommandOption {
     key: String,
@@ -75,9 +98,19 @@ impl Autocomplete for CommandAutocomplete {
     fn get_completion(
         &mut self,
         input: &str,
-        _highlighted_suggestion: Option<String>,
+        highlighted_suggestion: Option<String>,
     ) -> Result<inquire::autocompletion::Replacement, inquire::CustomUserError> {
-        // Keep what the user typed - don't replace with the suggestion
+        // If a suggestion is highlighted, extract just the command key from it
+        if let Some(suggestion) = highlighted_suggestion {
+            // The suggestion format is "key → url", so extract the key part
+            if let Some(arrow_pos) = suggestion.find(" → ") {
+                let key = suggestion[..arrow_pos].trim();
+                // Strip ANSI color codes from the key
+                let key_clean = strip_ansi_codes(key);
+                return Ok(Some(key_clean));
+            }
+        }
+        // Otherwise keep what the user typed
         Ok(Some(input.to_string()))
     }
 }
@@ -138,13 +171,21 @@ pub fn execute() -> Result<()> {
         .with_autocomplete(autocomplete)
         .prompt()?;
 
+    // Clean the input in case it contains the formatted suggestion
+    let cleaned_input = if let Some(arrow_pos) = user_input.find(" → ") {
+        // Extract just the key part before the arrow
+        strip_ansi_codes(&user_input[..arrow_pos])
+    } else {
+        user_input.clone()
+    };
+
     // Parse the input to extract keyword and arguments
-    let (keyword, args) = if let Some(space_pos) = user_input.find(' ') {
-        let keyword = &user_input[..space_pos];
-        let args = user_input[space_pos + 1..].trim();
+    let (keyword, args) = if let Some(space_pos) = cleaned_input.find(' ') {
+        let keyword = &cleaned_input[..space_pos];
+        let args = cleaned_input[space_pos + 1..].trim();
         (keyword, if args.is_empty() { None } else { Some(args.to_string()) })
     } else {
-        (user_input.as_str(), None)
+        (cleaned_input.as_str(), None)
     };
 
     // Find matching command (case-insensitive)
