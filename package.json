@@ -1,0 +1,24 @@
+{
+  "name": "project-switch",
+  "version": "1.0.0",
+  "description": "Fast CLI tool to manage and switch between projects. Rewritten in Rust for blazing fast performance.",
+  "main": "index.js",
+  "scripts": {
+    "commit": "ts-node scripts/commit.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/staff0rd/project-switch.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/staff0rd/project-switch/issues"
+  },
+  "homepage": "https://github.com/staff0rd/project-switch#readme",
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
