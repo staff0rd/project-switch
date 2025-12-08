@@ -4,6 +4,17 @@ use anyhow::Result;
 use colored::*;
 use inquire::Autocomplete;
 
+/// Check if a string looks like a URL
+fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://") ||
+    s.starts_with("www.") ||
+    // Check for common URL patterns like domain.tld
+    (s.contains('.') && !s.contains(' ') && {
+        let parts: Vec<&str> = s.split('.').collect();
+        parts.len() >= 2 && !parts.last().unwrap_or(&"").is_empty()
+    })
+}
+
 fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars();
@@ -200,8 +211,19 @@ pub fn execute() -> Result<()> {
             .iter()
             .filter(|cmd| cmd.key.to_lowercase().contains(&keyword.to_lowercase()))
             .collect();
-        
+
         if partial_matches.is_empty() {
+            // No matches - check if the input looks like a URL
+            if is_url(keyword) {
+                let url = if keyword.starts_with("http://") || keyword.starts_with("https://") {
+                    keyword.to_string()
+                } else {
+                    format!("https://{}", keyword)
+                };
+                let browser = project.browser.as_deref()
+                    .unwrap_or_else(|| config_manager.get_default_browser());
+                return browser::open_url_in_browser(&url, browser);
+            }
             anyhow::bail!("No command found matching '{}'", keyword);
         }
         partial_matches[0]

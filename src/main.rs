@@ -25,7 +25,8 @@ enum Commands {
     },
     /// Show the current project
     Current,
-    /// Open a URL associated with the current project
+    #[command(hide = true)]
+    /// (Deprecated) Open a URL associated with the current project - use 'list' instead
     Open {
         /// Command key
         key: String,
@@ -47,6 +48,7 @@ fn main() -> Result<()> {
         Commands::Current => {
             commands::current::execute()?;
         }
+        #[allow(deprecated)]
         Commands::Open { key } => {
             commands::open::execute(&key)?;
         }
