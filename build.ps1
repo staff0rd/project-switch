@@ -2,7 +2,7 @@
 
 # Kill any running project-switch.exe processes
 Write-Host "Stopping any running project-switch.exe processes..."
-Get-Process -Name "project-switch" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "project-switch", "project-switch-hotkey" -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Host "Processes stopped."
 
 # Delete the bin folder if it exists
