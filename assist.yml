@@ -1,0 +1,15 @@
+commit:
+  conventional: false
+  pull: false
+  push: true
+notify:
+  enabled: true
+complexity:
+  ignore:
+    - "**/*test.ts*"
+run:
+  - name: build
+    command: powershell 
+    args:
+      - -File
+      - ./build.ps1

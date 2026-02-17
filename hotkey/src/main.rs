@@ -53,8 +53,19 @@ fn main() {
 
         if has_message.as_bool() && msg.message == WM_HOTKEY {
             eprintln!("ALT+SPACE pressed — launching project-switch list...");
+
+            // Kill any existing project-switch.exe instances first
+            let _ = Command::new("taskkill")
+                .args(["/IM", "project-switch.exe", "/F"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+
+            // Wrap in "cmd /c ... & exit /b 0" so the terminal tab closes
+            // even when taskkill force-kills project-switch (exit code 1).
+            let cmd_line = format!("{} list & exit /b 0", project_switch.to_string_lossy());
             match Command::new("wt.exe")
-                .args(["--", &project_switch.to_string_lossy().into_owned(), "list"])
+                .args(["--", "cmd", "/c", &cmd_line])
                 .spawn()
             {
                 Ok(_) => {}
