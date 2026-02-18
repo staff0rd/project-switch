@@ -1,11 +1,6 @@
 # Project Switch (Rust)
 
-Fast CLI tool to manage and switch between projects. Rewritten in Rust for blazing fast performance.
-
-## Performance Comparison
-
-- **Node.js version**: ~100-200ms startup time
-- **Rust version**: ~1-5ms startup time ⚡
+Fast CLI tool to manage and switch between projects. Written in Rust for blazing fast performance (~1-5ms startup time).
 
 ## Build
 
@@ -47,4 +42,4 @@ project-switch open <key>
 
 ## Configuration
 
-Uses the same `.project-switch.yml` format as the Node.js version. See `example-config.yml` for reference.
+Uses `.project-switch.yml` for configuration. See `example-config.yml` for reference.

@@ -14,6 +14,11 @@ Subcommands: `switch`, `add`, `current`, `open` (deprecated/hidden), `list`.
 
 A background Windows service that registers a global ALT+SPACE hotkey. When triggered, it kills any running `project-switch.exe` instances and launches `project-switch list` in Windows Terminal.
 
+- Standalone crate (not a workspace member), built through the Docker pipeline
+- Console app that logs to stderr
+- Uses `RegisterHotKey` with `MOD_ALT | MOD_NOREPEAT` and `PeekMessageW` polling with 50ms sleep
+- Auto-start: create a shortcut in `shell:startup` (Win+R -> `shell:startup`), set "Run: Minimized"
+
 ## Building
 
 To build the project, use Docker Compose:
