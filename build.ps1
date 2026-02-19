@@ -41,3 +41,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Build completed successfully!"
+
+# Restart the hotkey listener
+$hotkeyPath = Join-Path $PSScriptRoot "bin/windows/project-switch-hotkey.exe"
+if (Test-Path $hotkeyPath) {
+    Write-Host "Starting project-switch-hotkey..."
+    Start-Process -FilePath $hotkeyPath
+    Write-Host "project-switch-hotkey started."
+}
