@@ -42,6 +42,21 @@ fn launch_project_switch(project_switch: &std::path::Path) {
 }
 
 fn main() {
+    // Kill any already-running instances of this program
+    let our_pid = std::process::id().to_string();
+    let _ = Command::new("wmic")
+        .args([
+            "process",
+            "where",
+            &format!("Name='project-switch-hotkey.exe' and ProcessId!='{our_pid}'"),
+            "call",
+            "terminate",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+
     let exe_dir = std::env::current_exe()
         .expect("Failed to get executable path")
         .parent()
