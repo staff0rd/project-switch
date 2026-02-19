@@ -1,9 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm init:*)",
-      "Bash(npm install:*)",
-      "Bash(npm run build:*)",
       "Bash(mkdir:*)",
       "Bash(rm:*)",
       "Bash(docker compose:*)",
@@ -14,7 +11,9 @@
       "Bash(./bin/windows/project-switch.exe:*)",
       "Bash(find:*)",
       "Bash(rg:*)",
-      "Bash(./build.ps1)"
+      "Bash(git add:*)",
+      "Skill(build)",
+      "Bash(assist run build)"
     ],
     "deny": []
   }
