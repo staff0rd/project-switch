@@ -22,11 +22,7 @@ A background Windows service that registers a global ALT+SPACE hotkey. When trig
 
 ## Building
 
-To build the project:
-
-```
-assist run build
-```
+If `/verify succeeds`, and we are finished, we should `/build`
 
 Building should happen after a set of changes are implemented to confirm no compilation errors.
 
