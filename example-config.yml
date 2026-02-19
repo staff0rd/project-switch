@@ -1,5 +1,14 @@
 currentProject: myapp
 defaultBrowser: firefox  # Global default browser
+
+# Windows Desktop/Start Menu shortcut indexing
+shortcuts:
+  enabled: true  # Set to false to hide shortcuts from the list command
+  extraPaths:    # Additional directories to scan for .lnk/.url files (recursive)
+    - "D:\\PortableApps"
+  exclude:       # Glob patterns to exclude (* at start/end for wildcard)
+    - "Uninstall *"
+
 projects:
   - name: myapp
     path: /home/user/projects/myapp

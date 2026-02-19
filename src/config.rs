@@ -10,6 +10,30 @@ fn is_false(value: &bool) -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShortcutsConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(rename = "extraPaths", skip_serializing_if = "Option::is_none")]
+    pub extra_paths: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude: Option<Vec<String>>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for ShortcutsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            extra_paths: None,
+            exclude: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectCommand {
     pub key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,6 +67,8 @@ pub struct Config {
     pub default_browser: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub global: Option<Vec<ProjectCommand>>,
+    #[serde(default)]
+    pub shortcuts: Option<ShortcutsConfig>,
     pub projects: Vec<Project>,
 }
 
@@ -52,6 +78,7 @@ impl Default for Config {
             current_project: None,
             default_browser: None,
             global: None,
+            shortcuts: None,
             projects: Vec::new(),
         }
     }
@@ -189,5 +216,9 @@ impl ConfigManager {
 
     pub fn get_global_commands(&self) -> Option<&Vec<ProjectCommand>> {
         self.config.global.as_ref()
+    }
+
+    pub fn get_shortcuts_config(&self) -> ShortcutsConfig {
+        self.config.shortcuts.clone().unwrap_or_default()
     }
 }

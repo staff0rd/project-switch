@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod config;
 mod icon;
 
 use std::os::windows::process::CommandExt;
@@ -9,12 +10,35 @@ use std::time::Duration;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-use muda::{Menu, MenuEvent, MenuItem};
+use muda::{Menu, MenuEvent, MenuItem, CheckMenuItem};
 use tray_icon::{TrayIconBuilder, TrayIconEvent};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_NOREPEAT, VK_SPACE,
 };
-use windows::Win32::UI::WindowsAndMessaging::{PeekMessageW, PM_REMOVE, WM_HOTKEY};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DispatchMessageW, PeekMessageW, TranslateMessage, PM_REMOVE, WM_HOTKEY,
+};
+
+fn launch_project_switch(project_switch: &std::path::Path) {
+    // Kill any existing project-switch.exe instances first
+    let _ = Command::new("taskkill")
+        .args(["/IM", "project-switch.exe", "/F"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+
+    // Wrap in "cmd /c ... & exit /b 0" so the terminal tab closes
+    // even when taskkill force-kills project-switch (exit code 1).
+    let cmd_line = format!("{} list & exit /b 0", project_switch.to_string_lossy());
+    match Command::new("wt.exe")
+        .args(["--", "cmd", "/c", &cmd_line])
+        .spawn()
+    {
+        Ok(_) => {}
+        Err(e) => eprintln!("Failed to launch wt.exe: {e}"),
+    }
+}
 
 fn main() {
     let exe_dir = std::env::current_exe()
@@ -43,10 +67,17 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Build context menu with "Exit" item
+    // Build context menu
     let menu = Menu::new();
+    let open_item = MenuItem::new("Open", true, None);
+    let open_id = open_item.id().clone();
+    let shortcuts_enabled = config::read_shortcuts_enabled();
+    let shortcuts_item = CheckMenuItem::new("Shortcuts", true, shortcuts_enabled, None);
+    let shortcuts_id = shortcuts_item.id().clone();
     let exit_item = MenuItem::new("Exit", true, None);
     let exit_id = exit_item.id().clone();
+    menu.append(&open_item).expect("Failed to add menu item");
+    menu.append(&shortcuts_item).expect("Failed to add menu item");
     menu.append(&exit_item).expect("Failed to add menu item");
 
     // Create system tray icon
@@ -65,30 +96,25 @@ fn main() {
         // Check Win32 messages (hotkey)
         let has_message = unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) };
 
-        if has_message.as_bool() && msg.message == WM_HOTKEY {
-            // Kill any existing project-switch.exe instances first
-            let _ = Command::new("taskkill")
-                .args(["/IM", "project-switch.exe", "/F"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .creation_flags(CREATE_NO_WINDOW)
-                .status();
-
-            // Wrap in "cmd /c ... & exit /b 0" so the terminal tab closes
-            // even when taskkill force-kills project-switch (exit code 1).
-            let cmd_line = format!("{} list & exit /b 0", project_switch.to_string_lossy());
-            match Command::new("wt.exe")
-                .args(["--", "cmd", "/c", &cmd_line])
-                .spawn()
-            {
-                Ok(_) => {}
-                Err(e) => eprintln!("Failed to launch wt.exe: {e}"),
+        if has_message.as_bool() {
+            if msg.message == WM_HOTKEY {
+                launch_project_switch(&project_switch);
+            } else {
+                unsafe {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
             }
         }
 
         // Check tray menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id() == &exit_id {
+            if event.id() == &open_id {
+                launch_project_switch(&project_switch);
+            } else if event.id() == &shortcuts_id {
+                let new_value = config::toggle_shortcuts_enabled();
+                shortcuts_item.set_checked(new_value);
+            } else if event.id() == &exit_id {
                 running = false;
             }
         }

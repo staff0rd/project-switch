@@ -69,6 +69,25 @@ fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
     }
 }
 
+pub fn launch_shortcut(path: &str) -> Result<()> {
+    if cfg!(target_os = "windows") {
+        let status = Command::new("powershell")
+            .args(&["-Command", &format!("Start-Process '{}'", path)])
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                println!("{}", format!("Launching {}...", path).green());
+                Ok(())
+            }
+            Ok(_) => anyhow::bail!("Failed to launch shortcut: {}", path),
+            Err(e) => anyhow::bail!("Error launching shortcut: {}", e),
+        }
+    } else {
+        anyhow::bail!("Shortcut launching is only supported on Windows")
+    }
+}
+
 pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
         if browser.to_lowercase() == "default" {
