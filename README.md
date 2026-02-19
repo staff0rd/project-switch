@@ -42,4 +42,49 @@ project-switch open <key>
 
 ## Configuration
 
-Uses `.project-switch.yml` for configuration. See `example-config.yml` for reference.
+Uses `~/.project-switch.yml` for configuration. See `example-config.yml` for reference.
+
+### Config Sharing
+
+To share project definitions across machines, use the `include` field to reference a shared config file (e.g. stored in a dotfiles repo):
+
+**Shared file** (`~/dotfiles/project-switch.yml`):
+```yaml
+projects:
+  - name: myapp
+    description: My main application
+    commands:
+      - key: docs
+        url: https://docs.myapp.com
+      - key: github
+        url: https://github.com/user/myapp
+global:
+  - key: search
+    url: https://google.com/search?q=
+    url_encode: true
+```
+
+**Local file** (`~/.project-switch.yml`):
+```yaml
+include: ~/dotfiles/project-switch.yml
+
+currentProject: myapp
+defaultBrowser: chrome
+shortcuts:
+  enabled: true
+projects:
+  - name: myapp
+    path: C:\Users\me\projects\myapp
+    browser: chrome
+```
+
+**Merge rules:**
+- **Scalars** (`currentProject`, `defaultBrowser`): local wins if present, otherwise base
+- **`projects`**: matched by `name`, then merged field-by-field (local fields win)
+- **`commands`** (project-level and `global`): matched by `key`, then merged field-by-field
+- **`shortcuts`**: local replaces entirely (machine-specific)
+- Missing include file: warning printed, continues with local config only
+- Only one level of include is supported (nested includes are ignored)
+- The tool never writes to the included file
+
+See `example-include-config.yml` for a full shared config example.

@@ -1,0 +1,28 @@
+# Example shared config file (referenced via "include" in ~/.project-switch.yml)
+# Store this in a dotfiles repo or synced folder for cross-machine sharing.
+# Machine-specific fields (path, browser, shortcuts) go in the local config.
+
+projects:
+  - name: myapp
+    description: My main application
+    commands:
+      - key: docs
+        url: https://docs.myapp.com
+      - key: github
+        url: https://github.com/user/myapp
+      - key: ci
+        url: https://github.com/user/myapp/actions
+  - name: website
+    description: Company website
+    commands:
+      - key: prod
+        url: https://example.com
+      - key: analytics
+        url: https://analytics.example.com
+
+global:
+  - key: search
+    url: https://google.com/search?q=
+    url_encode: true
+  - key: chatgpt
+    url: https://chat.openai.com

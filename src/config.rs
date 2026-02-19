@@ -61,6 +61,8 @@ pub struct Project {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include: Option<String>,
     #[serde(rename = "currentProject", skip_serializing_if = "Option::is_none")]
     pub current_project: Option<String>,
     #[serde(rename = "defaultBrowser", skip_serializing_if = "Option::is_none")]
@@ -69,13 +71,114 @@ pub struct Config {
     pub global: Option<Vec<ProjectCommand>>,
     #[serde(default)]
     pub shortcuts: Option<ShortcutsConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub projects: Vec<Project>,
+}
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
+
+fn merge_configs(base: Config, overlay: Config) -> Config {
+    Config {
+        include: overlay.include,
+        current_project: overlay.current_project.or(base.current_project),
+        default_browser: overlay.default_browser.or(base.default_browser),
+        global: merge_command_lists(base.global, overlay.global),
+        // shortcuts is machine-specific: local replaces entirely
+        shortcuts: if overlay.shortcuts.is_some() {
+            overlay.shortcuts
+        } else {
+            base.shortcuts
+        },
+        projects: merge_project_lists(base.projects, overlay.projects),
+    }
+}
+
+fn merge_project_lists(base: Vec<Project>, overlay: Vec<Project>) -> Vec<Project> {
+    let mut merged: Vec<Project> = Vec::new();
+
+    // Start with base projects, merging overlay matches
+    for base_proj in &base {
+        if let Some(overlay_proj) = overlay.iter().find(|p| p.name == base_proj.name) {
+            merged.push(merge_projects(base_proj.clone(), overlay_proj.clone()));
+        } else {
+            merged.push(base_proj.clone());
+        }
+    }
+
+    // Append overlay-only projects (not in base), sorted by name
+    let mut overlay_only: Vec<Project> = overlay
+        .into_iter()
+        .filter(|p| !base.iter().any(|b| b.name == p.name))
+        .collect();
+    overlay_only.sort_by(|a, b| a.name.cmp(&b.name));
+    merged.extend(overlay_only);
+
+    merged
+}
+
+fn merge_projects(base: Project, overlay: Project) -> Project {
+    Project {
+        name: overlay.name,
+        path: overlay.path.or(base.path),
+        description: overlay.description.or(base.description),
+        browser: overlay.browser.or(base.browser),
+        commands: merge_command_lists(base.commands, overlay.commands),
+    }
+}
+
+fn merge_command_lists(
+    base: Option<Vec<ProjectCommand>>,
+    overlay: Option<Vec<ProjectCommand>>,
+) -> Option<Vec<ProjectCommand>> {
+    match (base, overlay) {
+        (None, None) => None,
+        (Some(b), None) => Some(b),
+        (None, Some(o)) => Some(o),
+        (Some(base_cmds), Some(overlay_cmds)) => {
+            let mut merged: Vec<ProjectCommand> = Vec::new();
+
+            for base_cmd in &base_cmds {
+                if let Some(overlay_cmd) = overlay_cmds.iter().find(|c| c.key == base_cmd.key) {
+                    merged.push(merge_commands(base_cmd.clone(), overlay_cmd.clone()));
+                } else {
+                    merged.push(base_cmd.clone());
+                }
+            }
+
+            // Append overlay-only commands
+            let overlay_only: Vec<ProjectCommand> = overlay_cmds
+                .into_iter()
+                .filter(|c| !base_cmds.iter().any(|b| b.key == c.key))
+                .collect();
+            merged.extend(overlay_only);
+
+            Some(merged)
+        }
+    }
+}
+
+fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectCommand {
+    ProjectCommand {
+        key: overlay.key,
+        url: overlay.url.or(base.url),
+        browser: overlay.browser.or(base.browser),
+        args: overlay.args.or(base.args),
+        url_encode: base.url_encode || overlay.url_encode,
+    }
 }
 
 pub struct ConfigManager {
     config: Config,
     config_path: PathBuf,
     raw_yaml: Option<Value>,
+    local_projects: Vec<Project>,
 }
 
 impl ConfigManager {
@@ -84,29 +187,52 @@ impl ConfigManager {
             .context("Unable to determine home directory")?
             .join(".project-switch.yml");
 
-        let (config, raw_yaml) = Self::load_config(&config_path)?;
+        let (config, raw_yaml, local_projects) = Self::load_config(&config_path)?;
 
         Ok(Self {
             config,
             config_path,
             raw_yaml,
+            local_projects,
         })
     }
 
-    fn load_config(path: &PathBuf) -> Result<(Config, Option<Value>)> {
+    fn load_config(path: &PathBuf) -> Result<(Config, Option<Value>, Vec<Project>)> {
         if path.exists() {
             let contents = fs::read_to_string(path)
                 .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-            let config: Config =
+            let local_config: Config =
                 serde_yaml::from_str(&contents).context("Failed to parse config file")?;
 
             let raw_yaml: Value = serde_yaml::from_str(&contents)
                 .context("Failed to parse config file as raw YAML")?;
 
-            Ok((config, Some(raw_yaml)))
+            let local_projects = local_config.projects.clone();
+
+            // Handle include
+            let config = if let Some(ref include_path) = local_config.include {
+                let resolved = expand_tilde(include_path);
+                if resolved.exists() {
+                    let base_contents = fs::read_to_string(&resolved).with_context(|| {
+                        format!("Failed to read included config: {}", resolved.display())
+                    })?;
+                    let base_config: Config =
+                        serde_yaml::from_str(&base_contents).with_context(|| {
+                            format!("Failed to parse included config: {}", resolved.display())
+                        })?;
+                    merge_configs(base_config, local_config)
+                } else {
+                    eprintln!("Warning: included config not found: {}", resolved.display());
+                    local_config
+                }
+            } else {
+                local_config
+            };
+
+            Ok((config, Some(raw_yaml), local_projects))
         } else {
-            Ok((Config::default(), None))
+            Ok((Config::default(), None, Vec::new()))
         }
     }
 
@@ -122,16 +248,24 @@ impl ConfigManager {
                     map.remove(&current_project_key);
                 }
 
-                // Update projects array
+                // Update projects array (only local projects, not merged)
                 let projects_key = Value::String("projects".to_string());
-                let projects_value = serde_yaml::to_value(&self.config.projects)
+                let projects_value = serde_yaml::to_value(&self.local_projects)
                     .context("Failed to serialize projects")?;
                 map.insert(projects_key, projects_value);
             }
             raw.clone()
         } else {
-            // No existing file, serialize the whole config
-            serde_yaml::to_value(&self.config).context("Failed to serialize config")?
+            // No existing file, serialize a config with only local projects
+            let local_config = Config {
+                include: self.config.include.clone(),
+                current_project: self.config.current_project.clone(),
+                default_browser: self.config.default_browser.clone(),
+                global: self.config.global.clone(),
+                shortcuts: self.config.shortcuts.clone(),
+                projects: self.local_projects.clone(),
+            };
+            serde_yaml::to_value(&local_config).context("Failed to serialize config")?
         };
 
         let yaml = serde_yaml::to_string(&yaml_value).context("Failed to serialize config")?;
@@ -171,6 +305,7 @@ impl ConfigManager {
 
         let is_first_project = self.config.projects.is_empty();
         self.config.projects.push(project.clone());
+        self.local_projects.push(project.clone());
 
         if is_first_project {
             self.config.current_project = Some(project.name);
