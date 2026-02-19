@@ -124,26 +124,19 @@ impl Autocomplete for ListAutocomplete {
 pub fn execute() -> Result<()> {
     let config_manager = ConfigManager::new()?;
 
-    let (current_project_name, project) = match config_manager.resolve_current_project() {
-        Some(result) => result,
-        None => {
-            println!(
-                "{}",
-                "No current project selected or project not found".red()
-            );
-            println!(
-                "{}",
-                "Use \"project-switch switch\" to select a project first".yellow()
-            );
-            return Ok(());
-        }
-    };
+    let resolved = config_manager.resolve_current_project();
+    let display_name = resolved
+        .as_ref()
+        .map(|(name, _)| name.as_str())
+        .unwrap_or("global");
 
     // Collect commands from both project and global
     let mut all_commands = Vec::new();
 
-    if let Some(project_commands) = &project.commands {
-        all_commands.extend(project_commands.iter().cloned());
+    if let Some((_, project)) = &resolved {
+        if let Some(project_commands) = &project.commands {
+            all_commands.extend(project_commands.iter().cloned());
+        }
     }
 
     if let Some(global_commands) = config_manager.get_global_commands() {
@@ -187,7 +180,7 @@ pub fn execute() -> Result<()> {
             "{}",
             format!(
                 "No openable items found in project '{}' or global commands",
-                current_project_name
+                display_name
             )
             .yellow()
         );
@@ -204,7 +197,7 @@ pub fn execute() -> Result<()> {
 
     let user_input = inquire::Text::new(&format!(
         "Enter command (with optional arguments) for '{}':",
-        current_project_name
+        display_name
     ))
     .with_autocomplete(autocomplete)
     .prompt()?;
@@ -272,7 +265,7 @@ pub fn execute() -> Result<()> {
                 let browser_name = selected_command
                     .browser
                     .as_deref()
-                    .or(project.browser.as_deref())
+                    .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
                     .unwrap_or_else(|| config_manager.get_default_browser());
 
                 let final_args = match (selected_command.args.as_deref(), args.as_deref()) {
@@ -300,9 +293,9 @@ pub fn execute() -> Result<()> {
                 } else {
                     format!("https://{}", keyword)
                 };
-                let browser_name = project
-                    .browser
-                    .as_deref()
+                let browser_name = resolved
+                    .as_ref()
+                    .and_then(|(_, p)| p.browser.as_deref())
                     .unwrap_or_else(|| config_manager.get_default_browser());
                 return browser::open_url_in_browser(&url, browser_name);
             }
