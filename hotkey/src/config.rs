@@ -6,6 +6,20 @@ fn config_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".project-switch.yml"))
 }
 
+/// Read the `include` path from the config file and resolve `~/` to the home directory.
+pub fn read_include_path() -> Option<PathBuf> {
+    let path = config_path().filter(|p| p.exists())?;
+    let contents = fs::read_to_string(&path).ok()?;
+    let doc: Value = serde_yaml::from_str(&contents).ok()?;
+    let include = doc.get("include")?.as_str()?;
+    let resolved = if let Some(rest) = include.strip_prefix("~/").or_else(|| include.strip_prefix("~\\")) {
+        dirs::home_dir()?.join(rest)
+    } else {
+        PathBuf::from(include)
+    };
+    Some(resolved)
+}
+
 /// Read the current value of `shortcuts.enabled` from the config file.
 /// Returns `true` if the field is missing or the file doesn't exist (default behaviour).
 pub fn read_shortcuts_enabled() -> bool {

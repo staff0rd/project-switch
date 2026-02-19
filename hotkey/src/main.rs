@@ -2,13 +2,14 @@
 
 mod config;
 mod icon;
+mod sync;
 
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 use muda::{Menu, MenuEvent, MenuItem, CheckMenuItem};
 use tray_icon::{TrayIconBuilder, TrayIconEvent};
@@ -47,6 +48,8 @@ fn main() {
         .expect("Executable has no parent directory")
         .to_path_buf();
     let project_switch = exe_dir.join("project-switch.exe");
+
+    sync::start_sync_thread();
 
     // Register ALT+SPACE hotkey
     let hotkey_id = 1;
