@@ -1,5 +1,5 @@
-pub mod switch;
 pub mod add;
 pub mod current;
-pub mod open;
 pub mod list;
+pub mod open;
+pub mod switch;

@@ -7,3 +7,10 @@ services:
     volumes:
       - ./bin:/app_output
     command: sh -c "cp -r /output/. /app_output/"
+  lint:
+    build:
+      context: .
+      dockerfile: Dockerfile.lint
+    volumes:
+      - .:/app
+    command: cargo machete

@@ -32,19 +32,29 @@ pub fn execute(key: &str) -> Result<()> {
                 } else {
                     format!("https://{}", key)
                 };
-                let browser = project.browser.as_deref()
+                let browser = project
+                    .browser
+                    .as_deref()
                     .unwrap_or_else(|| config_manager.get_default_browser());
                 return browser::open_url_in_browser(&url, browser);
             }
-            anyhow::bail!("Command with key '{}' not found in project '{}' or global commands", key, current_project_name);
+            anyhow::bail!(
+                "Command with key '{}' not found in project '{}' or global commands",
+                key,
+                current_project_name
+            );
         }
     };
 
-    let url = command.url.as_ref()
+    let url = command
+        .url
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Command '{}' does not have a URL configured", key))?;
 
     // Browser hierarchy: command > project > config > default
-    let browser = command.browser.as_deref()
+    let browser = command
+        .browser
+        .as_deref()
         .or(project.browser.as_deref())
         .unwrap_or_else(|| config_manager.get_default_browser());
 

@@ -9,7 +9,10 @@ pub fn execute() -> Result<()> {
     let current_project = config_manager.get_current_project();
 
     if projects.is_empty() {
-        println!("{}", "No projects found. Use \"add\" command to add a project.".yellow());
+        println!(
+            "{}",
+            "No projects found. Use \"add\" command to add a project.".yellow()
+        );
         return Ok(());
     }
 
@@ -34,14 +37,23 @@ pub fn execute() -> Result<()> {
         )
         .prompt()?;
 
-    let selected_index = options.iter().position(|opt| opt == &selected_option).unwrap();
+    let selected_index = options
+        .iter()
+        .position(|opt| opt == &selected_option)
+        .unwrap();
     let selected_project = project_names[selected_index].clone();
 
     if Some(&selected_project) != current_project {
         config_manager.set_current_project(&selected_project)?;
-        println!("{}", format!("Switched to project: {}", selected_project).green());
+        println!(
+            "{}",
+            format!("Switched to project: {}", selected_project).green()
+        );
     } else {
-        println!("{}", format!("Already on project: {}", selected_project).blue());
+        println!(
+            "{}",
+            format!("Already on project: {}", selected_project).blue()
+        );
     }
 
     Ok(())

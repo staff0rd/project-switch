@@ -59,7 +59,7 @@ pub struct Project {
     pub commands: Option<Vec<ProjectCommand>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(rename = "currentProject", skip_serializing_if = "Option::is_none")]
     pub current_project: Option<String>,
@@ -70,18 +70,6 @@ pub struct Config {
     #[serde(default)]
     pub shortcuts: Option<ShortcutsConfig>,
     pub projects: Vec<Project>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            current_project: None,
-            default_browser: None,
-            global: None,
-            shortcuts: None,
-            projects: Vec::new(),
-        }
-    }
 }
 
 pub struct ConfigManager {
@@ -98,7 +86,11 @@ impl ConfigManager {
 
         let (config, raw_yaml) = Self::load_config(&config_path)?;
 
-        Ok(Self { config, config_path, raw_yaml })
+        Ok(Self {
+            config,
+            config_path,
+            raw_yaml,
+        })
     }
 
     fn load_config(path: &PathBuf) -> Result<(Config, Option<Value>)> {
@@ -106,8 +98,8 @@ impl ConfigManager {
             let contents = fs::read_to_string(path)
                 .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-            let config: Config = serde_yaml::from_str(&contents)
-                .context("Failed to parse config file")?;
+            let config: Config =
+                serde_yaml::from_str(&contents).context("Failed to parse config file")?;
 
             let raw_yaml: Value = serde_yaml::from_str(&contents)
                 .context("Failed to parse config file as raw YAML")?;
@@ -139,15 +131,17 @@ impl ConfigManager {
             raw.clone()
         } else {
             // No existing file, serialize the whole config
-            serde_yaml::to_value(&self.config)
-                .context("Failed to serialize config")?
+            serde_yaml::to_value(&self.config).context("Failed to serialize config")?
         };
 
-        let yaml = serde_yaml::to_string(&yaml_value)
-            .context("Failed to serialize config")?;
+        let yaml = serde_yaml::to_string(&yaml_value).context("Failed to serialize config")?;
 
-        fs::write(&self.config_path, yaml)
-            .with_context(|| format!("Failed to write config file: {}", self.config_path.display()))?;
+        fs::write(&self.config_path, yaml).with_context(|| {
+            format!(
+                "Failed to write config file: {}",
+                self.config_path.display()
+            )
+        })?;
 
         Ok(())
     }
@@ -164,7 +158,7 @@ impl ConfigManager {
         if !self.project_exists(project_name) {
             anyhow::bail!("Project '{}' not found", project_name);
         }
-        
+
         self.config.current_project = Some(project_name.to_string());
         self.save_config()?;
         Ok(())
@@ -174,14 +168,14 @@ impl ConfigManager {
         if self.project_exists(&project.name) {
             anyhow::bail!("Project '{}' already exists", project.name);
         }
-        
+
         let is_first_project = self.config.projects.is_empty();
         self.config.projects.push(project.clone());
-        
+
         if is_first_project {
             self.config.current_project = Some(project.name);
         }
-        
+
         self.save_config()?;
         Ok(())
     }
@@ -200,18 +194,24 @@ impl ConfigManager {
         self.get_project(name).map(|p| (name, p))
     }
 
-    pub fn get_project_command(&self, project_name: &str, command_key: &str) -> Option<&ProjectCommand> {
+    pub fn get_project_command(
+        &self,
+        project_name: &str,
+        command_key: &str,
+    ) -> Option<&ProjectCommand> {
         // First check project-specific commands
-        if let Some(project_command) = self.get_project(project_name)?
+        if let Some(project_command) = self
+            .get_project(project_name)?
             .commands
             .as_ref()
             .and_then(|cmds| cmds.iter().find(|c| c.key == command_key))
         {
             return Some(project_command);
         }
-        
+
         // Fall back to global commands
-        self.config.global
+        self.config
+            .global
             .as_ref()
             .and_then(|cmds| cmds.iter().find(|c| c.key == command_key))
     }

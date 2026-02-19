@@ -2,7 +2,12 @@ use anyhow::Result;
 use colored::*;
 use std::process::Command;
 
-pub fn open_command_with_args(command: &str, browser: &str, args: Option<&str>, url_encode: bool) -> Result<()> {
+pub fn open_command_with_args(
+    command: &str,
+    browser: &str,
+    args: Option<&str>,
+    url_encode: bool,
+) -> Result<()> {
     // Check if the command is a URL (starts with http)
     if command.starts_with("http") {
         // If there are arguments, append them to the URL with optional encoding
@@ -30,28 +35,26 @@ pub fn open_command_with_args(command: &str, browser: &str, args: Option<&str>, 
 fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
         let mut cmd = Command::new("powershell");
-        cmd.args(&["-Command", command]);
-        
+        cmd.args(["-Command", command]);
+
         if let Some(args_str) = args {
             if !args_str.is_empty() {
                 cmd.arg(args_str);
             }
         }
-        
+
         cmd.spawn()
     } else {
         let mut full_command = command.to_string();
-        
+
         if let Some(args_str) = args {
             if !args_str.is_empty() {
                 full_command.push(' ');
                 full_command.push_str(args_str);
             }
         }
-        
-        Command::new("sh")
-            .args(&["-c", &full_command])
-            .spawn()
+
+        Command::new("sh").args(["-c", &full_command]).spawn()
     };
 
     match cmd_result {
@@ -60,7 +63,10 @@ fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
                 .filter(|s| !s.is_empty())
                 .map(|a| format!(" {}", a))
                 .unwrap_or_default();
-            println!("{}", format!("Running command: {}{}", command, args_str).green());
+            println!(
+                "{}",
+                format!("Running command: {}{}", command, args_str).green()
+            );
             Ok(())
         }
         Err(e) => {
@@ -72,7 +78,7 @@ fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
 pub fn launch_shortcut(path: &str) -> Result<()> {
     if cfg!(target_os = "windows") {
         let status = Command::new("powershell")
-            .args(&["-Command", &format!("Start-Process '{}'", path)])
+            .args(["-Command", &format!("Start-Process '{}'", path)])
             .status();
 
         match status {
@@ -103,28 +109,37 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
         if browser.to_lowercase() == "default" {
             Command::new("powershell")
-                .args(&["-Command", &format!("Set-Location C:\\; Start-Process '{}'", url)])
+                .args([
+                    "-Command",
+                    &format!("Set-Location C:\\; Start-Process '{}'", url),
+                ])
                 .status()
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
             let ps_command = if extra_args.is_empty() {
-                format!("Set-Location C:\\; Start-Process '{}' '{}'", browser_cmd, url)
+                format!(
+                    "Set-Location C:\\; Start-Process '{}' '{}'",
+                    browser_cmd, url
+                )
             } else {
-                format!("Set-Location C:\\; Start-Process '{}' '{} {}'", browser_cmd, extra_args.join(" "), url)
+                format!(
+                    "Set-Location C:\\; Start-Process '{}' '{} {}'",
+                    browser_cmd,
+                    extra_args.join(" "),
+                    url
+                )
             };
             Command::new("powershell")
-                .args(&["-Command", &ps_command])
+                .args(["-Command", &ps_command])
                 .status()
         }
     } else if cfg!(target_os = "macos") {
         if browser.to_lowercase() == "default" {
-            Command::new("open")
-                .arg(url)
-                .status()
+            Command::new("open").arg(url).status()
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
             let mut cmd = Command::new("open");
-            cmd.args(&["-a", browser_cmd]);
+            cmd.args(["-a", browser_cmd]);
             if !extra_args.is_empty() {
                 cmd.arg("--args");
                 for arg in extra_args {
@@ -136,9 +151,7 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
     } else {
         // Linux/Unix
         if browser.to_lowercase() == "default" {
-            Command::new("xdg-open")
-                .arg(url)
-                .status()
+            Command::new("xdg-open").arg(url).status()
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
             let mut cmd = Command::new(browser_cmd);

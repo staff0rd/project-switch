@@ -1,9 +1,9 @@
-mod config;
 mod commands;
+mod config;
 mod utils;
 
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "project-switch")]

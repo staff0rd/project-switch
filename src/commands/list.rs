@@ -69,7 +69,8 @@ struct ListAutocomplete {
 
 impl ListAutocomplete {
     fn matching_suggestions(&self, keyword: &str) -> Vec<String> {
-        self.items.iter()
+        self.items
+            .iter()
             .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
             .map(|item| item.format_suggestion())
             .collect()
@@ -83,9 +84,10 @@ impl Autocomplete for ListAutocomplete {
 
         let suggestions: Vec<String> = if has_space {
             // Check for exact match on the keyword part
-            let exact_match = self.items.iter().find(|item| {
-                item.key.to_lowercase() == keyword.to_lowercase()
-            });
+            let exact_match = self
+                .items
+                .iter()
+                .find(|item| item.key.to_lowercase() == keyword.to_lowercase());
 
             if let Some(matched) = exact_match {
                 vec![matched.format_suggestion()]
@@ -111,8 +113,8 @@ impl Autocomplete for ListAutocomplete {
                 return Ok(Some(clean[..arrow_pos].trim().to_string()));
             }
             // Shortcut format: "[app] Name"
-            if clean.starts_with(APP_PREFIX) {
-                return Ok(Some(clean[APP_PREFIX.len()..].to_string()));
+            if let Some(rest) = clean.strip_prefix(APP_PREFIX) {
+                return Ok(Some(rest.to_string()));
             }
         }
         Ok(Some(input.to_string()))
@@ -125,8 +127,14 @@ pub fn execute() -> Result<()> {
     let (current_project_name, project) = match config_manager.resolve_current_project() {
         Some(result) => result,
         None => {
-            println!("{}", "No current project selected or project not found".red());
-            println!("{}", "Use \"project-switch switch\" to select a project first".yellow());
+            println!(
+                "{}",
+                "No current project selected or project not found".red()
+            );
+            println!(
+                "{}",
+                "Use \"project-switch switch\" to select a project first".yellow()
+            );
             return Ok(());
         }
     };
@@ -175,8 +183,18 @@ pub fn execute() -> Result<()> {
     }
 
     if all_items.is_empty() {
-        println!("{}", format!("No openable items found in project '{}' or global commands", current_project_name).yellow());
-        println!("{}", "Use \"project-switch add\" to add commands to your project".blue());
+        println!(
+            "{}",
+            format!(
+                "No openable items found in project '{}' or global commands",
+                current_project_name
+            )
+            .yellow()
+        );
+        println!(
+            "{}",
+            "Use \"project-switch add\" to add commands to your project".blue()
+        );
         return Ok(());
     }
 
@@ -184,17 +202,20 @@ pub fn execute() -> Result<()> {
         items: all_items.clone(),
     };
 
-    let user_input = inquire::Text::new(&format!("Enter command (with optional arguments) for '{}':", current_project_name))
-        .with_autocomplete(autocomplete)
-        .prompt()?;
+    let user_input = inquire::Text::new(&format!(
+        "Enter command (with optional arguments) for '{}':",
+        current_project_name
+    ))
+    .with_autocomplete(autocomplete)
+    .prompt()?;
 
     // Clean the input
     let cleaned_input = {
         let stripped = strip_ansi_codes(&user_input);
         if let Some(arrow_pos) = stripped.find(" → ") {
             stripped[..arrow_pos].trim().to_string()
-        } else if stripped.starts_with(APP_PREFIX) {
-            stripped[APP_PREFIX.len()..].to_string()
+        } else if let Some(rest) = stripped.strip_prefix(APP_PREFIX) {
+            rest.to_string()
         } else {
             stripped
         }
@@ -204,17 +225,26 @@ pub fn execute() -> Result<()> {
     let (keyword, args) = if let Some(space_pos) = cleaned_input.find(' ') {
         let keyword = &cleaned_input[..space_pos];
         let args = cleaned_input[space_pos + 1..].trim();
-        (keyword.to_string(), if args.is_empty() { None } else { Some(args.to_string()) })
+        (
+            keyword.to_string(),
+            if args.is_empty() {
+                None
+            } else {
+                Some(args.to_string())
+            },
+        )
     } else {
         (cleaned_input.clone(), None)
     };
 
     // Try to find a matching item
-    let matched_item = all_items.iter()
+    let matched_item = all_items
+        .iter()
         .find(|item| item.key.to_lowercase() == keyword.to_lowercase())
         .or_else(|| {
             // Partial match fallback
-            let matches: Vec<_> = all_items.iter()
+            let matches: Vec<_> = all_items
+                .iter()
                 .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
                 .collect();
             matches.into_iter().next()
@@ -227,25 +257,39 @@ pub fn execute() -> Result<()> {
             }
             ListItemKind::Command => {
                 // Find the original command for browser/args resolution
-                let selected_command = sorted_commands.iter()
+                let selected_command = sorted_commands
+                    .iter()
                     .find(|cmd| cmd.key.to_lowercase() == item.key.to_lowercase())
                     .ok_or_else(|| anyhow::anyhow!("Command '{}' not found", item.key))?;
 
-                let url = selected_command.url.as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("Command '{}' does not have a URL configured", selected_command.key))?;
+                let url = selected_command.url.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Command '{}' does not have a URL configured",
+                        selected_command.key
+                    )
+                })?;
 
-                let browser_name = selected_command.browser.as_deref()
+                let browser_name = selected_command
+                    .browser
+                    .as_deref()
                     .or(project.browser.as_deref())
                     .unwrap_or_else(|| config_manager.get_default_browser());
 
                 let final_args = match (selected_command.args.as_deref(), args.as_deref()) {
-                    (Some(cmd_args), Some(user_args)) => Some(format!("{} {}", cmd_args, user_args)),
+                    (Some(cmd_args), Some(user_args)) => {
+                        Some(format!("{} {}", cmd_args, user_args))
+                    }
                     (Some(cmd_args), None) => Some(cmd_args.to_string()),
                     (None, Some(user_args)) => Some(user_args.to_string()),
                     (None, None) => None,
                 };
 
-                browser::open_command_with_args(url, browser_name, final_args.as_deref(), selected_command.url_encode)?;
+                browser::open_command_with_args(
+                    url,
+                    browser_name,
+                    final_args.as_deref(),
+                    selected_command.url_encode,
+                )?;
             }
         },
         None => {
@@ -256,7 +300,9 @@ pub fn execute() -> Result<()> {
                 } else {
                     format!("https://{}", keyword)
                 };
-                let browser_name = project.browser.as_deref()
+                let browser_name = project
+                    .browser
+                    .as_deref()
                     .unwrap_or_else(|| config_manager.get_default_browser());
                 return browser::open_url_in_browser(&url, browser_name);
             }

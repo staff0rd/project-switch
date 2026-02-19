@@ -20,6 +20,37 @@ run:
       - run
       - --rm
       - lint
+  - name: verify:fmt
+    command: docker
+    args:
+      - compose
+      - run
+      - --rm
+      - lint
+      - cargo
+      - fmt
+      - --check
+  - name: verify:clippy
+    command: docker
+    args:
+      - compose
+      - run
+      - --rm
+      - lint
+      - cargo
+      - clippy
+      - --
+      - -D
+      - warnings
+  - name: verify:audit
+    command: docker
+    args:
+      - compose
+      - run
+      - --rm
+      - lint
+      - cargo
+      - audit
   - name: verify:duplicate-code
     command: npx
     args:

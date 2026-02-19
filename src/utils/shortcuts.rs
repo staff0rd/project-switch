@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct ShortcutEntry {
-    pub name: String, // filename stem (e.g. "Visual Studio Code")
+    pub name: String,  // filename stem (e.g. "Visual Studio Code")
     pub path: PathBuf, // full path to the .lnk/.url file
 }
 

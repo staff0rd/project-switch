@@ -45,11 +45,17 @@ pub fn execute(name: Option<String>) -> Result<()> {
     };
 
     config_manager.add_project(project)?;
-    println!("{}", format!("Project '{}' added successfully!", project_name).green());
+    println!(
+        "{}",
+        format!("Project '{}' added successfully!", project_name).green()
+    );
 
     let projects = config_manager.get_projects();
     if projects.len() == 1 {
-        println!("{}", format!("'{}' is now the current project.", project_name).blue());
+        println!(
+            "{}",
+            format!("'{}' is now the current project.", project_name).blue()
+        );
     }
 
     Ok(())
