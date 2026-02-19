@@ -1,20 +1,10 @@
 use crate::config::ConfigManager;
 use crate::utils::browser;
 use crate::utils::shortcuts;
+use crate::utils::url::is_url;
 use anyhow::Result;
 use colored::*;
 use inquire::Autocomplete;
-
-/// Check if a string looks like a URL
-fn is_url(s: &str) -> bool {
-    s.starts_with("http://") || s.starts_with("https://") ||
-    s.starts_with("www.") ||
-    // Check for common URL patterns like domain.tld
-    (s.contains('.') && !s.contains(' ') && {
-        let parts: Vec<&str> = s.split('.').collect();
-        parts.len() >= 2 && !parts.last().unwrap_or(&"").is_empty()
-    })
-}
 
 fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::new();
@@ -77,6 +67,15 @@ struct ListAutocomplete {
     items: Vec<ListItem>,
 }
 
+impl ListAutocomplete {
+    fn matching_suggestions(&self, keyword: &str) -> Vec<String> {
+        self.items.iter()
+            .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
+            .map(|item| item.format_suggestion())
+            .collect()
+    }
+}
+
 impl Autocomplete for ListAutocomplete {
     fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, inquire::CustomUserError> {
         let keyword = input.split_whitespace().next().unwrap_or(input);
@@ -91,16 +90,10 @@ impl Autocomplete for ListAutocomplete {
             if let Some(matched) = exact_match {
                 vec![matched.format_suggestion()]
             } else {
-                self.items.iter()
-                    .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
-                    .map(|item| item.format_suggestion())
-                    .collect()
+                self.matching_suggestions(keyword)
             }
         } else {
-            self.items.iter()
-                .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
-                .map(|item| item.format_suggestion())
-                .collect()
+            self.matching_suggestions(keyword)
         };
 
         Ok(suggestions)
@@ -129,17 +122,14 @@ impl Autocomplete for ListAutocomplete {
 pub fn execute() -> Result<()> {
     let config_manager = ConfigManager::new()?;
 
-    let current_project_name = match config_manager.get_current_project() {
-        Some(name) => name,
+    let (current_project_name, project) = match config_manager.resolve_current_project() {
+        Some(result) => result,
         None => {
-            println!("{}", "Error: No current project selected".red());
+            println!("{}", "No current project selected or project not found".red());
             println!("{}", "Use \"project-switch switch\" to select a project first".yellow());
             return Ok(());
         }
     };
-
-    let project = config_manager.get_project(current_project_name)
-        .ok_or_else(|| anyhow::anyhow!("Current project not found"))?;
 
     // Collect commands from both project and global
     let mut all_commands = Vec::new();

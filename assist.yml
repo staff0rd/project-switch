@@ -9,7 +9,25 @@ complexity:
     - "**/*test.ts*"
 run:
   - name: build
-    command: powershell 
+    command: powershell
     args:
       - -File
       - ./build.ps1
+  - name: verify:machete
+    command: docker
+    args:
+      - compose
+      - run
+      - --rm
+      - lint
+  - name: verify:duplicate-code
+    command: npx
+    args:
+      - jscpd
+      - --exitCode
+      - "1"
+      - -r
+      - consoleFull
+      - --pattern
+      - "**/*.rs"
+      - .

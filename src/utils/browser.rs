@@ -88,6 +88,17 @@ pub fn launch_shortcut(path: &str) -> Result<()> {
     }
 }
 
+/// Parse a browser string into the executable name and any extra arguments.
+/// e.g., "firefox -P someProfile" -> ("firefox", ["P", "someProfile"])
+fn parse_browser_with_args(browser: &str) -> (&str, Vec<&str>) {
+    let parts: Vec<&str> = browser.split_whitespace().collect();
+    if parts.len() > 1 {
+        (parts[0], parts[1..].to_vec())
+    } else {
+        (browser, vec![])
+    }
+}
+
 pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
         if browser.to_lowercase() == "default" {
@@ -95,20 +106,12 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
                 .args(&["-Command", &format!("Set-Location C:\\; Start-Process '{}'", url)])
                 .status()
         } else {
-            // Parse browser string to handle command + args (e.g., "firefox -P someProfile")
-            let parts: Vec<&str> = browser.split_whitespace().collect();
-            let (browser_cmd, browser_args) = if parts.len() > 1 {
-                (parts[0], parts[1..].join(" "))
-            } else {
-                (browser, String::new())
-            };
-            
-            let ps_command = if browser_args.is_empty() {
+            let (browser_cmd, extra_args) = parse_browser_with_args(browser);
+            let ps_command = if extra_args.is_empty() {
                 format!("Set-Location C:\\; Start-Process '{}' '{}'", browser_cmd, url)
             } else {
-                format!("Set-Location C:\\; Start-Process '{}' '{} {}'", browser_cmd, browser_args, url)
+                format!("Set-Location C:\\; Start-Process '{}' '{} {}'", browser_cmd, extra_args.join(" "), url)
             };
-            
             Command::new("powershell")
                 .args(&["-Command", &ps_command])
                 .status()
@@ -119,25 +122,16 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
                 .arg(url)
                 .status()
         } else {
-            // Parse browser string to handle command + args (e.g., "firefox -P someProfile")
-            let parts: Vec<&str> = browser.split_whitespace().collect();
-            if parts.len() > 1 {
-                // Browser has arguments
-                let browser_cmd = parts[0];
-                let mut cmd = Command::new("open");
-                cmd.args(&["-a", browser_cmd]);
-                // Add additional args
+            let (browser_cmd, extra_args) = parse_browser_with_args(browser);
+            let mut cmd = Command::new("open");
+            cmd.args(&["-a", browser_cmd]);
+            if !extra_args.is_empty() {
                 cmd.arg("--args");
-                for arg in &parts[1..] {
+                for arg in extra_args {
                     cmd.arg(arg);
                 }
-                cmd.arg(url);
-                cmd.status()
-            } else {
-                Command::new("open")
-                    .args(&["-a", browser, url])
-                    .status()
             }
+            cmd.arg(url).status()
         }
     } else {
         // Linux/Unix
@@ -146,22 +140,12 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
                 .arg(url)
                 .status()
         } else {
-            // Parse browser string to handle command + args (e.g., "firefox -P someProfile")
-            let parts: Vec<&str> = browser.split_whitespace().collect();
-            if parts.len() > 1 {
-                // Browser has arguments
-                let browser_cmd = parts[0];
-                let mut cmd = Command::new(browser_cmd);
-                for arg in &parts[1..] {
-                    cmd.arg(arg);
-                }
-                cmd.arg(url);
-                cmd.status()
-            } else {
-                Command::new(browser)
-                    .arg(url)
-                    .status()
+            let (browser_cmd, extra_args) = parse_browser_with_args(browser);
+            let mut cmd = Command::new(browser_cmd);
+            for arg in extra_args {
+                cmd.arg(arg);
             }
+            cmd.arg(url).status()
         }
     };
 

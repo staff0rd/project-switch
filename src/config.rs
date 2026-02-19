@@ -194,6 +194,12 @@ impl ConfigManager {
         self.config.projects.iter().find(|p| p.name == name)
     }
 
+    /// Returns the current project name and its configuration, or None if not set/found.
+    pub fn resolve_current_project(&self) -> Option<(&String, &Project)> {
+        let name = self.get_current_project()?;
+        self.get_project(name).map(|p| (name, p))
+    }
+
     pub fn get_project_command(&self, project_name: &str, command_key: &str) -> Option<&ProjectCommand> {
         // First check project-specific commands
         if let Some(project_command) = self.get_project(project_name)?
