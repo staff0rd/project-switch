@@ -18,6 +18,9 @@ anyhow = "1.0"
 dirs = "5.0"
 urlencoding = "2.1"
 
+[build-dependencies]
+winresource = "0.1"
+
 [profile.release]
 lto = true
 codegen-units = 1

@@ -13,8 +13,9 @@ RUN rustup target add x86_64-unknown-linux-gnu
 WORKDIR /app
 
 # Copy source code
-COPY Cargo.toml Cargo.lock* ./
+COPY Cargo.toml Cargo.lock* build.rs ./
 COPY src/ ./src/
+COPY assets/ ./assets/
 COPY hotkey/ ./hotkey/
 
 # Build for Windows
