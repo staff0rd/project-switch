@@ -49,6 +49,7 @@ fn main() {
         .to_path_buf();
     let project_switch = exe_dir.join("project-switch.exe");
 
+    config::create_if_missing();
     sync::start_sync_thread();
 
     // Register ALT+SPACE hotkey

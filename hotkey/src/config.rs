@@ -20,6 +20,17 @@ pub fn read_include_path() -> Option<PathBuf> {
     Some(resolved)
 }
 
+/// Create the config file with minimal defaults if it doesn't exist.
+pub fn create_if_missing() {
+    let path = match config_path() {
+        Some(p) => p,
+        None => return,
+    };
+    if !path.exists() {
+        let _ = fs::write(&path, "projects: []\n");
+    }
+}
+
 /// Read the current value of `shortcuts.enabled` from the config file.
 /// Returns `true` if the field is missing or the file doesn't exist (default behaviour).
 pub fn read_shortcuts_enabled() -> bool {
