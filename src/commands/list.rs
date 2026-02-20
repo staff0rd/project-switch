@@ -29,6 +29,105 @@ fn strip_ansi_codes(s: &str) -> String {
     result
 }
 
+const PATH_PREFIX: &str = "[path] ";
+
+fn is_file_path(input: &str) -> bool {
+    let s = input.trim();
+    // Drive letter pattern: c: or D:\ etc.
+    if s.len() >= 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':' {
+        return true;
+    }
+    // UNC paths: \\server\...
+    if s.starts_with("\\\\") {
+        return true;
+    }
+    false
+}
+
+fn get_file_suggestions(input: &str) -> Vec<String> {
+    // Normalize forward slashes to backslashes
+    let normalized = input.replace('/', "\\");
+
+    // Handle bare drive letter like "c:" -> "c:\"
+    let working = if normalized.len() == 2
+        && normalized.as_bytes()[0].is_ascii_alphabetic()
+        && normalized.as_bytes()[1] == b':'
+    {
+        format!("{}\\", normalized)
+    } else {
+        normalized
+    };
+
+    // Split into directory portion and partial name filter
+    let (initial_dir, initial_filter) = match working.rfind('\\') {
+        Some(pos) => (working[..=pos].to_string(), working[pos + 1..].to_string()),
+        None => return Vec::new(),
+    };
+
+    let mut result = Vec::new();
+    let mut dir_part = initial_dir;
+    let mut filter = initial_filter;
+    let mut show_self = true;
+
+    // Loop to auto-expand when a filter matches exactly one directory
+    for _ in 0..10 {
+        // Show directory itself when browsing contents (empty filter), first level only
+        if filter.is_empty() && show_self {
+            result.push(format!("{}{}", PATH_PREFIX.cyan(), dir_part.bold().cyan()));
+        }
+
+        let entries = match std::fs::read_dir(&dir_part) {
+            Ok(e) => e,
+            Err(_) => break,
+        };
+
+        let filter_lower = filter.to_lowercase();
+        let mut dirs: Vec<(String, String)> = Vec::new();
+        let mut files: Vec<(String, String)> = Vec::new();
+
+        for entry in entries.flatten() {
+            let name = match entry.file_name().into_string() {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            if !filter.is_empty() && !name.to_lowercase().starts_with(&filter_lower) {
+                continue;
+            }
+
+            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+            if is_dir {
+                dirs.push((format!("{}{}\\", dir_part, name), name));
+            } else {
+                files.push((format!("{}{}", dir_part, name), name));
+            }
+        }
+
+        dirs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+        files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+
+        for (full, _) in &dirs {
+            result.push(format!("{}{}", PATH_PREFIX.cyan(), full.bold().cyan()));
+        }
+
+        // Single directory match, no files — auto-expand into it
+        if dirs.len() == 1 && files.is_empty() {
+            dir_part = dirs[0].0.clone();
+            filter = String::new();
+            show_self = false;
+            continue;
+        }
+
+        for (full, _) in &files {
+            result.push(format!("{}{}", PATH_PREFIX.cyan(), full));
+        }
+
+        break;
+    }
+
+    result
+}
+
 #[derive(Clone)]
 enum ListItemKind {
     Command,
@@ -79,6 +178,10 @@ impl ListAutocomplete {
 
 impl Autocomplete for ListAutocomplete {
     fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, inquire::CustomUserError> {
+        if is_file_path(input) {
+            return Ok(get_file_suggestions(input));
+        }
+
         let keyword = input.split_whitespace().next().unwrap_or(input);
         let has_space = input.contains(' ');
 
@@ -108,6 +211,12 @@ impl Autocomplete for ListAutocomplete {
     ) -> Result<inquire::autocompletion::Replacement, inquire::CustomUserError> {
         if let Some(suggestion) = highlighted_suggestion {
             let clean = strip_ansi_codes(&suggestion);
+            // File path format: "[path] full\path\" or "[path] full\path\file"
+            if let Some(full_path) = clean.strip_prefix(PATH_PREFIX) {
+                if is_file_path(full_path) {
+                    return Ok(Some(full_path.to_string()));
+                }
+            }
             // Command format: "key → url"
             if let Some(arrow_pos) = clean.find(" → ") {
                 return Ok(Some(clean[..arrow_pos].trim().to_string()));
@@ -209,10 +318,23 @@ pub fn execute() -> Result<()> {
             stripped[..arrow_pos].trim().to_string()
         } else if let Some(rest) = stripped.strip_prefix(APP_PREFIX) {
             rest.to_string()
+        } else if let Some(rest) = stripped.strip_prefix(PATH_PREFIX) {
+            rest.to_string()
         } else {
             stripped
         }
     };
+
+    // Handle file paths early (before keyword split, since paths can contain spaces)
+    if is_file_path(&cleaned_input) {
+        let path = std::path::Path::new(&cleaned_input);
+        if path.exists() {
+            browser::launch_shortcut(&cleaned_input)?;
+            return Ok(());
+        } else {
+            anyhow::bail!("Path does not exist: '{}'", cleaned_input);
+        }
+    }
 
     // Parse keyword and arguments
     let (keyword, args) = if let Some(space_pos) = cleaned_input.find(' ') {
