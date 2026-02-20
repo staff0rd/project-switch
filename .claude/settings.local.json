@@ -13,7 +13,8 @@
       "Bash(rg:*)",
       "Bash(git add:*)",
       "Skill(build)",
-      "Bash(assist run build)"
+      "Bash(assist run build)",
+      "Bash(wc:*)"
     ],
     "deny": []
   }
