@@ -338,32 +338,42 @@ pub fn execute() -> Result<()> {
 
     // Parse keyword and arguments
     let (keyword, args) = if let Some(space_pos) = cleaned_input.find(' ') {
-        let keyword = &cleaned_input[..space_pos];
-        let args = cleaned_input[space_pos + 1..].trim();
+        let kw = &cleaned_input[..space_pos];
+        let rest = cleaned_input[space_pos + 1..].trim();
         (
-            keyword.to_string(),
-            if args.is_empty() {
+            kw.to_string(),
+            if rest.is_empty() {
                 None
             } else {
-                Some(args.to_string())
+                Some(rest.to_string())
             },
         )
     } else {
         (cleaned_input.clone(), None)
     };
 
-    // Try to find a matching item
-    let matched_item = all_items
+    // Try exact match on full input first (handles multi-word keys like shortcuts)
+    let (matched_item, args) = if let Some(item) = all_items
         .iter()
-        .find(|item| item.key.to_lowercase() == keyword.to_lowercase())
-        .or_else(|| {
-            // Partial match fallback
-            let matches: Vec<_> = all_items
-                .iter()
-                .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
-                .collect();
-            matches.into_iter().next()
-        });
+        .find(|item| item.key.to_lowercase() == cleaned_input.to_lowercase())
+    {
+        (Some(item), None)
+    } else {
+        // Try to find a matching item by keyword
+        let matched = all_items
+            .iter()
+            .find(|item| item.key.to_lowercase() == keyword.to_lowercase())
+            .or_else(|| {
+                // Partial match fallback
+                let matches: Vec<_> = all_items
+                    .iter()
+                    .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
+                    .collect();
+                matches.into_iter().next()
+            });
+
+        (matched, args)
+    };
 
     match matched_item {
         Some(item) => match &item.kind {
