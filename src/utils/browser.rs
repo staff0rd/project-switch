@@ -76,21 +76,23 @@ fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
 }
 
 pub fn launch_shortcut(path: &str) -> Result<()> {
-    if cfg!(target_os = "windows") {
-        let status = Command::new("powershell")
+    let status = if cfg!(target_os = "windows") {
+        Command::new("powershell")
             .args(["-Command", &format!("Start-Process '{}'", path)])
-            .status();
-
-        match status {
-            Ok(s) if s.success() => {
-                println!("{}", format!("Launching {}...", path).green());
-                Ok(())
-            }
-            Ok(_) => anyhow::bail!("Failed to launch shortcut: {}", path),
-            Err(e) => anyhow::bail!("Error launching shortcut: {}", e),
-        }
+            .status()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(path).status()
     } else {
-        anyhow::bail!("Shortcut launching is only supported on Windows")
+        anyhow::bail!("Shortcut launching is not supported on this platform")
+    };
+
+    match status {
+        Ok(s) if s.success() => {
+            println!("{}", format!("Launching {}...", path).green());
+            Ok(())
+        }
+        Ok(_) => anyhow::bail!("Failed to launch shortcut: {}", path),
+        Err(e) => anyhow::bail!("Error launching shortcut: {}", e),
     }
 }
 
