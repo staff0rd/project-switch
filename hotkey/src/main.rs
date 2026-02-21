@@ -7,7 +7,7 @@ mod sync;
 
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
-    GlobalHotKeyEvent, GlobalHotKeyManager,
+    GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
 };
 use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem};
 use tao::event::{Event, StartCause};
@@ -105,7 +105,7 @@ fn main() {
             }
 
             Event::UserEvent(UserEvent::Hotkey(event)) => {
-                if event.id() == hotkey.id() {
+                if event.id() == hotkey.id() && event.state == HotKeyState::Pressed {
                     platform::launch_project_switch(&project_switch);
                 }
             }
