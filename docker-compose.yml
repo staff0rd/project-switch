@@ -16,9 +16,12 @@ services:
       dockerfile: Dockerfile.lint
     volumes:
       - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-lint-target:/app/target
     command: cargo machete
 
 volumes:
   cargo-registry:
   cargo-target:
   cargo-hotkey-target:
+  cargo-lint-target:
