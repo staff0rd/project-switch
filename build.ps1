@@ -22,6 +22,9 @@ else {
     Write-Host "bin folder does not exist."
 }
 
+# Only build for Windows
+$env:BUILD_TARGET = "windows"
+
 # Force rebuild of Docker container and run build service
 Write-Host "Building Docker container and running build service..."
 

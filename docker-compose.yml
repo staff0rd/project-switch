@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: export
+      args:
+        BUILD_TARGET: ${BUILD_TARGET:-all}
     volumes:
       - ./bin:/app_output
     command: sh -c "cp -r /output/. /app_output/"
