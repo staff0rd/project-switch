@@ -1,5 +1,7 @@
 #!/usr/bin/env pwsh
 
+$env:BUILD_TARGET = "windows"
+
 # Kill any running project-switch.exe processes
 Write-Host "Stopping any running project-switch.exe processes..."
 Get-Process -Name "project-switch", "project-switch-hotkey" -ErrorAction SilentlyContinue | Stop-Process -Force

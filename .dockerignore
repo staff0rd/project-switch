@@ -1,7 +1,5 @@
 # Rust build artifacts
 target/
-Cargo.lock
-
 
 # Output directory
 bin/

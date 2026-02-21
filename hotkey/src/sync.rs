@@ -1,11 +1,20 @@
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
 use crate::config;
-use crate::CREATE_NO_WINDOW;
+
+#[cfg(windows)]
+fn silent(cmd: &mut Command) -> &mut Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000)
+}
+
+#[cfg(not(windows))]
+fn silent(cmd: &mut Command) -> &mut Command {
+    cmd
+}
 
 /// Walk up from the file's parent directory looking for a `.git` directory.
 /// Returns the repo root if found.
@@ -22,10 +31,11 @@ fn find_git_repo(file_path: &Path) -> Option<PathBuf> {
 /// Run `git pull` in the given repo directory. Errors are silently ignored
 /// (network may be unavailable).
 fn git_pull(repo: &Path) {
-    let _ = Command::new("git")
-        .args(["-C", &repo.to_string_lossy(), "pull"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let _ = silent(
+        Command::new("git")
+            .args(["-C", &repo.to_string_lossy(), "pull"]),
+    )
+    .output();
 }
 
 /// Check for uncommitted changes and, if any, stage, commit, and push them.
@@ -33,10 +43,11 @@ fn git_sync(repo: &Path) {
     let repo_str = repo.to_string_lossy();
 
     // Check if there are any changes
-    let output = Command::new("git")
-        .args(["-C", &repo_str, "status", "--porcelain"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let output = silent(
+        Command::new("git")
+            .args(["-C", &repo_str, "status", "--porcelain"]),
+    )
+    .output();
 
     let has_changes = match output {
         Ok(o) => !o.stdout.is_empty(),
@@ -47,26 +58,29 @@ fn git_sync(repo: &Path) {
         return;
     }
 
-    let _ = Command::new("git")
-        .args(["-C", &repo_str, "add", "-A"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let _ = silent(
+        Command::new("git")
+            .args(["-C", &repo_str, "add", "-A"]),
+    )
+    .output();
 
-    let _ = Command::new("git")
-        .args([
-            "-C",
-            &repo_str,
-            "commit",
-            "-m",
-            "auto-sync project-switch config",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let _ = silent(
+        Command::new("git")
+            .args([
+                "-C",
+                &repo_str,
+                "commit",
+                "-m",
+                "auto-sync project-switch config",
+            ]),
+    )
+    .output();
 
-    let _ = Command::new("git")
-        .args(["-C", &repo_str, "push"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let _ = silent(
+        Command::new("git")
+            .args(["-C", &repo_str, "push"]),
+    )
+    .output();
 }
 
 /// Spawn a background thread that periodically pulls and syncs the git repo

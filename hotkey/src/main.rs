@@ -1,90 +1,64 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod config;
 mod icon;
+mod platform;
 mod sync;
 
-use std::os::windows::process::CommandExt;
-use std::process::Command;
-use std::thread;
-use std::time::Duration;
-
-pub(crate) const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-use muda::{Menu, MenuEvent, MenuItem, CheckMenuItem};
-use tray_icon::{TrayIconBuilder, TrayIconEvent};
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_NOREPEAT, VK_SPACE,
+use global_hotkey::{
+    hotkey::{Code, HotKey, Modifiers},
+    GlobalHotKeyEvent, GlobalHotKeyManager,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, PeekMessageW, TranslateMessage, PM_REMOVE, WM_HOTKEY,
-};
+use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem};
+use tao::event::{Event, StartCause};
+use tao::event_loop::{ControlFlow, EventLoopBuilder};
+use tray_icon::TrayIconBuilder;
 
-fn launch_project_switch(project_switch: &std::path::Path) {
-    // Kill any existing project-switch.exe instances first
-    let _ = Command::new("taskkill")
-        .args(["/IM", "project-switch.exe", "/F"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
-
-    // Wrap in "cmd /c ... & exit /b 0" so the terminal tab closes
-    // even when taskkill force-kills project-switch (exit code 1).
-    let cmd_line = format!("{} list & exit /b 0", project_switch.to_string_lossy());
-    match Command::new("wt.exe")
-        .args(["--", "cmd", "/c", &cmd_line])
-        .spawn()
-    {
-        Ok(_) => {}
-        Err(e) => eprintln!("Failed to launch wt.exe: {e}"),
-    }
+enum UserEvent {
+    Hotkey(global_hotkey::GlobalHotKeyEvent),
+    Menu(muda::MenuEvent),
 }
 
 fn main() {
-    // Kill any already-running instances of this program
-    let our_pid = std::process::id().to_string();
-    let _ = Command::new("wmic")
-        .args([
-            "process",
-            "where",
-            &format!("Name='project-switch-hotkey.exe' and ProcessId!='{our_pid}'"),
-            "call",
-            "terminate",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
+    platform::kill_existing_hotkey_instances();
 
     let exe_dir = std::env::current_exe()
         .expect("Failed to get executable path")
         .parent()
         .expect("Executable has no parent directory")
         .to_path_buf();
-    let project_switch = exe_dir.join("project-switch.exe");
+    let project_switch = exe_dir.join(platform::binary_name());
 
     config::create_if_missing();
     sync::start_sync_thread();
 
-    // Register ALT+SPACE hotkey
-    let hotkey_id = 1;
-    let result = unsafe {
-        RegisterHotKey(
-            None,
-            hotkey_id,
-            MOD_ALT | MOD_NOREPEAT,
-            VK_SPACE.0.into(),
-        )
-    };
+    // Build event loop
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
-    if let Err(e) = result {
-        eprintln!(
-            "Failed to register ALT+SPACE hotkey: {e}\n\
-             Another program may have ALT+SPACE registered (check PowerToys, AutoHotkey)."
-        );
+    // Register hotkey: CMD+Space on macOS, ALT+Space on Windows
+    let manager = GlobalHotKeyManager::new().expect("Failed to create hotkey manager");
+    let modifier = if cfg!(target_os = "macos") {
+        Modifiers::SUPER
+    } else {
+        Modifiers::ALT
+    };
+    let hotkey = HotKey::new(Some(modifier), Code::Space);
+    if let Err(e) = manager.register(hotkey) {
+        eprintln!("Failed to register hotkey: {e}");
         std::process::exit(1);
     }
+
+    // Forward hotkey events to the event loop
+    let proxy = event_loop.create_proxy();
+    GlobalHotKeyEvent::set_event_handler(Some(move |event| {
+        let _ = proxy.send_event(UserEvent::Hotkey(event));
+    }));
+
+    // Forward menu events to the event loop
+    let proxy = event_loop.create_proxy();
+    MenuEvent::set_event_handler(Some(move |event| {
+        let _ = proxy.send_event(UserEvent::Menu(event));
+    }));
 
     // Build context menu
     let menu = Menu::new();
@@ -99,52 +73,56 @@ fn main() {
     menu.append(&shortcuts_item).expect("Failed to add menu item");
     menu.append(&exit_item).expect("Failed to add menu item");
 
-    // Create system tray icon
-    let _tray_icon = TrayIconBuilder::new()
-        .with_tooltip("Project Switch (ALT+SPACE)")
-        .with_icon(icon::create_tray_icon())
-        .with_menu(Box::new(menu))
-        .build()
-        .expect("Failed to create tray icon");
+    let mut tray_icon = None;
 
-    // Main message loop
-    let mut msg = windows::Win32::UI::WindowsAndMessaging::MSG::default();
-    let mut running = true;
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
 
-    while running {
-        // Check Win32 messages (hotkey)
-        let has_message = unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) };
+        match event {
+            Event::NewEvents(StartCause::Init) => {
+                // Create tray icon once the event loop is running (required on macOS)
+                let tooltip = if cfg!(target_os = "macos") {
+                    "Project Switch (\u{2318}+Space)"
+                } else {
+                    "Project Switch (ALT+SPACE)"
+                };
+                tray_icon = Some(
+                    TrayIconBuilder::new()
+                        .with_tooltip(tooltip)
+                        .with_icon(icon::create_tray_icon())
+                        .with_menu(Box::new(menu.clone()))
+                        .build()
+                        .expect("Failed to create tray icon"),
+                );
 
-        if has_message.as_bool() {
-            if msg.message == WM_HOTKEY {
-                launch_project_switch(&project_switch);
-            } else {
-                unsafe {
-                    TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
+                // Wake up the CFRunLoop so the icon appears immediately on macOS
+                #[cfg(target_os = "macos")]
+                {
+                    use objc2_core_foundation::CFRunLoop;
+                    let rl = CFRunLoop::main().unwrap();
+                    rl.wake_up();
                 }
             }
-        }
 
-        // Check tray menu events
-        if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id() == &open_id {
-                launch_project_switch(&project_switch);
-            } else if event.id() == &shortcuts_id {
-                let new_value = config::toggle_shortcuts_enabled();
-                shortcuts_item.set_checked(new_value);
-            } else if event.id() == &exit_id {
-                running = false;
+            Event::UserEvent(UserEvent::Hotkey(event)) => {
+                if event.id() == hotkey.id() {
+                    platform::launch_project_switch(&project_switch);
+                }
             }
+
+            Event::UserEvent(UserEvent::Menu(event)) => {
+                if event.id() == &open_id {
+                    platform::launch_project_switch(&project_switch);
+                } else if event.id() == &shortcuts_id {
+                    let new_value = config::toggle_shortcuts_enabled();
+                    shortcuts_item.set_checked(new_value);
+                } else if event.id() == &exit_id {
+                    tray_icon.take();
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+
+            _ => {}
         }
-
-        // Check tray icon events (double-click could also exit, but keeping it simple)
-        if let Ok(_event) = TrayIconEvent::receiver().try_recv() {
-            // No action on click — right-click menu handles everything
-        }
-
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    let _ = unsafe { UnregisterHotKey(None, hotkey_id) };
+    });
 }

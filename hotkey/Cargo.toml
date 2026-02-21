@@ -2,7 +2,7 @@
 name = "project-switch-hotkey"
 version = "1.0.0"
 edition = "2021"
-description = "Global ALT+SPACE hotkey listener for project-switch"
+description = "Global hotkey listener for project-switch"
 
 [[bin]]
 name = "project-switch-hotkey"
@@ -13,16 +13,18 @@ tray-icon = "0.19"
 muda = "0.15"
 serde_yaml = "0.9"
 dirs = "5.0"
+global-hotkey = "0.7"
+tao = { version = "0.34", default-features = false }
 
-[dependencies.windows]
-version = "0.58"
-features = [
-    "Win32_UI_Input_KeyboardAndMouse",
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_Shell",
-]
+] }
 
-[build-dependencies]
+[target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
 [profile.release]
