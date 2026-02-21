@@ -232,7 +232,15 @@ impl ConfigManager {
 
             Ok((config, Some(raw_yaml), local_projects))
         } else {
-            Ok((Config::default(), None, Vec::new()))
+            let default_contents = "projects: []\n";
+            fs::write(path, default_contents).with_context(|| {
+                format!("Failed to create default config file: {}", path.display())
+            })?;
+            let config: Config =
+                serde_yaml::from_str(default_contents).context("Failed to parse default config")?;
+            let raw_yaml: Value = serde_yaml::from_str(default_contents)
+                .context("Failed to parse default config as raw YAML")?;
+            Ok((config, Some(raw_yaml), Vec::new()))
         }
     }
 

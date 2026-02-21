@@ -1,14 +1,15 @@
 services:
   build:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: export
-      args:
-        BUILD_TARGET: ${BUILD_TARGET:-all}
+    build: .
     volumes:
-      - ./bin:/app_output
-    command: sh -c "cp -r /output/. /app_output/"
+      - .:/app
+      - ./bin:/output
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/app/target
+      - cargo-hotkey-target:/app/hotkey/target
+    environment:
+      - BUILD_TARGET=${BUILD_TARGET:-linux}
+    command: sh /app/docker-build.sh
   lint:
     build:
       context: .
@@ -16,3 +17,8 @@ services:
     volumes:
       - .:/app
     command: cargo machete
+
+volumes:
+  cargo-registry:
+  cargo-target:
+  cargo-hotkey-target:
