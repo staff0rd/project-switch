@@ -43,7 +43,7 @@ fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
             }
         }
 
-        cmd.spawn()
+        cmd.status()
     } else {
         let mut full_command = command.to_string();
 
@@ -54,19 +54,23 @@ fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
             }
         }
 
-        Command::new("sh").args(["-c", &full_command]).spawn()
+        Command::new("sh").args(["-c", &full_command]).status()
     };
 
     match cmd_result {
-        Ok(_) => {
+        Ok(status) => {
             let args_str = args
                 .filter(|s| !s.is_empty())
                 .map(|a| format!(" {}", a))
                 .unwrap_or_default();
-            println!(
-                "{}",
-                format!("Running command: {}{}", command, args_str).green()
-            );
+            if status.success() {
+                println!(
+                    "{}",
+                    format!("Running command: {}{}", command, args_str).green()
+                );
+            } else {
+                anyhow::bail!("Command failed: {}{}", command, args_str);
+            }
             Ok(())
         }
         Err(e) => {
