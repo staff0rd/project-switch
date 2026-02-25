@@ -178,6 +178,28 @@ impl ListAutocomplete {
 
 impl Autocomplete for ListAutocomplete {
     fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, inquire::CustomUserError> {
+        // Calculator mode: show result as a suggestion
+        if let Some(expr) = input.strip_prefix('=') {
+            let expr = expr.trim();
+            if expr.is_empty() {
+                return Ok(vec![format!(
+                    "{}",
+                    "Type a math expression (e.g. =5+1)".dimmed()
+                )]);
+            }
+            return Ok(match meval::eval_str(expr) {
+                Ok(result) => {
+                    let display = if result.fract() == 0.0 {
+                        format!("{}", result as i64)
+                    } else {
+                        format!("{}", result)
+                    };
+                    vec![format!("{}", format!("= {}", display).bold().green())]
+                }
+                Err(_) => vec![format!("{}", "Invalid expression".red())],
+            });
+        }
+
         if is_file_path(input) {
             return Ok(get_file_suggestions(input));
         }
@@ -310,6 +332,23 @@ pub fn execute() -> Result<()> {
     ))
     .with_autocomplete(autocomplete)
     .prompt()?;
+
+    // Calculator mode: input starting with '=' evaluates a math expression
+    if let Some(expr) = user_input.strip_prefix('=') {
+        let expr = expr.trim();
+        match meval::eval_str(expr) {
+            Ok(result) => {
+                let display = if result.fract() == 0.0 {
+                    format!("{}", result as i64)
+                } else {
+                    format!("{}", result)
+                };
+                println!("{}", format!("= {}", display).bold().green());
+                return Ok(());
+            }
+            Err(e) => anyhow::bail!("Math error: {}", e),
+        }
+    }
 
     // Clean the input
     let cleaned_input = {
