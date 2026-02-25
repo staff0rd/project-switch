@@ -36,18 +36,100 @@ fn matches_any_pattern(name: &str, patterns: &[String]) -> bool {
     false
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn try_add_entry(
+    path: &std::path::Path,
+    exclude_patterns: &[String],
+    seen: &mut std::collections::HashSet<String>,
+    entries: &mut Vec<ShortcutEntry>,
+) {
+    let stem = match path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s.to_string(),
+        None => return,
+    };
+    let key = stem.to_lowercase();
+    if seen.contains(&key) || matches_any_pattern(&stem, exclude_patterns) {
+        return;
+    }
+    seen.insert(key);
+    entries.push(ShortcutEntry {
+        name: stem,
+        path: path.to_path_buf(),
+    });
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn scan_directory(
+    dir: &PathBuf,
+    recursive: bool,
+    exclude_patterns: &[String],
+    seen: &mut std::collections::HashSet<String>,
+    entries: &mut Vec<ShortcutEntry>,
+    is_shortcut: fn(&std::path::Path) -> bool,
+    is_recursible: fn(&std::path::Path) -> bool,
+) {
+    let read_dir = match std::fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+
+        if is_shortcut(&path) {
+            try_add_entry(&path, exclude_patterns, seen, entries);
+        } else if recursive && is_recursible(&path) {
+            scan_directory(
+                &path,
+                true,
+                exclude_patterns,
+                seen,
+                entries,
+                is_shortcut,
+                is_recursible,
+            );
+        }
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn collect_from_dirs(
+    scan_dirs: &[(PathBuf, bool)],
+    exclude_patterns: &[String],
+    is_shortcut: fn(&std::path::Path) -> bool,
+    is_recursible: fn(&std::path::Path) -> bool,
+) -> Vec<ShortcutEntry> {
+    let mut seen = std::collections::HashSet::new();
+    let mut entries = Vec::new();
+    for (dir, recursive) in scan_dirs {
+        scan_directory(
+            dir,
+            *recursive,
+            exclude_patterns,
+            &mut seen,
+            &mut entries,
+            is_shortcut,
+            is_recursible,
+        );
+    }
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    entries
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn ext_lowercase(path: &std::path::Path) -> String {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+}
+
 #[cfg(target_os = "windows")]
 pub fn collect_shortcuts(
     extra_paths: &[String],
     exclude_patterns: &[String],
 ) -> Vec<ShortcutEntry> {
-    use std::collections::HashSet;
-
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut entries: Vec<ShortcutEntry> = Vec::new();
-
-    // Build scan locations in priority order
-    let mut scan_dirs: Vec<(PathBuf, bool)> = Vec::new(); // (path, recursive)
+    let mut scan_dirs: Vec<(PathBuf, bool)> = Vec::new();
 
     // 1. User Desktop (non-recursive)
     if let Some(profile) = std::env::var_os("USERPROFILE") {
@@ -78,67 +160,15 @@ pub fn collect_shortcuts(
         scan_dirs.push((PathBuf::from(extra), true));
     }
 
-    for (dir, recursive) in &scan_dirs {
-        scan_directory_windows(dir, *recursive, exclude_patterns, &mut seen, &mut entries);
+    fn is_shortcut(path: &std::path::Path) -> bool {
+        let ext = ext_lowercase(path);
+        !path.is_dir() && (ext == "lnk" || ext == "url")
+    }
+    fn is_recursible(path: &std::path::Path) -> bool {
+        path.is_dir()
     }
 
-    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    entries
-}
-
-#[cfg(target_os = "windows")]
-fn scan_directory_windows(
-    dir: &PathBuf,
-    recursive: bool,
-    exclude_patterns: &[String],
-    seen: &mut std::collections::HashSet<String>,
-    entries: &mut Vec<ShortcutEntry>,
-) {
-    let read_dir = match std::fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(_) => return,
-    };
-
-    for entry in read_dir.flatten() {
-        let path = entry.path();
-
-        if path.is_dir() && recursive {
-            scan_directory_windows(&path, true, exclude_patterns, seen, entries);
-            continue;
-        }
-
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext != "lnk" && ext != "url" {
-            continue;
-        }
-
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-
-        // Dedup by lowercase stem
-        let key = stem.to_lowercase();
-        if seen.contains(&key) {
-            continue;
-        }
-
-        // Check exclude patterns
-        if matches_any_pattern(&stem, exclude_patterns) {
-            continue;
-        }
-
-        seen.insert(key);
-        entries.push(ShortcutEntry {
-            name: stem,
-            path: path.clone(),
-        });
-    }
+    collect_from_dirs(&scan_dirs, exclude_patterns, is_shortcut, is_recursible)
 }
 
 #[cfg(target_os = "macos")]
@@ -146,13 +176,7 @@ pub fn collect_shortcuts(
     extra_paths: &[String],
     exclude_patterns: &[String],
 ) -> Vec<ShortcutEntry> {
-    use std::collections::HashSet;
-
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut entries: Vec<ShortcutEntry> = Vec::new();
-
-    // Build scan locations in priority order
-    let mut scan_dirs: Vec<(PathBuf, bool)> = Vec::new(); // (path, recursive)
+    let mut scan_dirs: Vec<(PathBuf, bool)> = Vec::new();
 
     // 1. /Applications (non-recursive)
     scan_dirs.push((PathBuf::from("/Applications"), false));
@@ -170,65 +194,14 @@ pub fn collect_shortcuts(
         scan_dirs.push((PathBuf::from(extra), true));
     }
 
-    for (dir, recursive) in &scan_dirs {
-        scan_directory_macos(dir, *recursive, exclude_patterns, &mut seen, &mut entries);
+    fn is_shortcut(path: &std::path::Path) -> bool {
+        ext_lowercase(path) == "app" && path.is_dir()
+    }
+    fn is_recursible(path: &std::path::Path) -> bool {
+        path.is_dir() && ext_lowercase(path) != "app"
     }
 
-    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    entries
-}
-
-#[cfg(target_os = "macos")]
-fn scan_directory_macos(
-    dir: &PathBuf,
-    recursive: bool,
-    exclude_patterns: &[String],
-    seen: &mut std::collections::HashSet<String>,
-    entries: &mut Vec<ShortcutEntry>,
-) {
-    let read_dir = match std::fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(_) => return,
-    };
-
-    for entry in read_dir.flatten() {
-        let path = entry.path();
-
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        // .app bundles are directories with .app extension
-        if ext == "app" && path.is_dir() {
-            let stem = match path.file_stem().and_then(|s| s.to_str()) {
-                Some(s) => s.to_string(),
-                None => continue,
-            };
-
-            let key = stem.to_lowercase();
-            if seen.contains(&key) {
-                continue;
-            }
-
-            if matches_any_pattern(&stem, exclude_patterns) {
-                continue;
-            }
-
-            seen.insert(key);
-            entries.push(ShortcutEntry {
-                name: stem,
-                path: path.clone(),
-            });
-            continue;
-        }
-
-        // Recurse into non-.app directories when recursive
-        if path.is_dir() && recursive {
-            scan_directory_macos(&path, true, exclude_patterns, seen, entries);
-        }
-    }
+    collect_from_dirs(&scan_dirs, exclude_patterns, is_shortcut, is_recursible)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
