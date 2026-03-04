@@ -113,6 +113,8 @@ fn parse_browser_with_args(browser: &str) -> (&str, Vec<&str>) {
 
 pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
+        // Encode spaces so PowerShell doesn't split the URL when passing to Start-Process
+        let url = &url.replace(' ', "%20");
         if browser.to_lowercase() == "default" {
             Command::new("powershell")
                 .args([
@@ -124,14 +126,18 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
             let ps_command = if extra_args.is_empty() {
                 format!(
-                    "Set-Location C:\\; Start-Process '{}' '{}'",
+                    "Set-Location C:\\; Start-Process '{}' @('{}')",
                     browser_cmd, url
                 )
             } else {
                 format!(
-                    "Set-Location C:\\; Start-Process '{}' '{} {}'",
+                    "Set-Location C:\\; Start-Process '{}' @({}, '{}')",
                     browser_cmd,
-                    extra_args.join(" "),
+                    extra_args
+                        .iter()
+                        .map(|a| format!("'{}'", a))
+                        .collect::<Vec<_>>()
+                        .join(", "),
                     url
                 )
             };
