@@ -433,28 +433,43 @@ pub fn execute(debug: bool) -> Result<()> {
                     )
                 })?;
 
-                let browser_name = selected_command
+                // Resolve browser: if any browser is configured, this is a browser command.
+                // If no browser is configured at any level, treat url as a terminal command.
+                let resolved_browser = selected_command
                     .browser
                     .as_deref()
                     .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
-                    .unwrap_or_else(|| config_manager.get_default_browser());
+                    .or_else(|| Some(config_manager.get_default_browser()));
 
-                let final_args = match (selected_command.args.as_deref(), args.as_deref()) {
-                    (Some(cmd_args), Some(user_args)) => {
-                        Some(format!("{} {}", cmd_args, user_args))
+                let effective_browser;
+                let browser_arg = match resolved_browser {
+                    Some(b) => {
+                        let b = match selected_command.args.as_deref() {
+                            Some(a) => {
+                                effective_browser = format!("{} {}", b, a);
+                                effective_browser.as_str()
+                            }
+                            None => b,
+                        };
+                        Some(b)
                     }
-                    (Some(cmd_args), None) => Some(cmd_args.to_string()),
-                    (None, Some(user_args)) => Some(user_args.to_string()),
-                    (None, None) => None,
+                    None => None,
                 };
 
-                browser::open_command_with_args(
-                    url,
-                    browser_name,
-                    final_args.as_deref(),
-                    selected_command.url_encode,
-                    debug,
-                )?;
+                let final_args = if browser_arg.is_some() {
+                    None
+                } else {
+                    match (selected_command.args.as_deref(), args.as_deref()) {
+                        (Some(cmd_args), Some(user_args)) => {
+                            Some(format!("{} {}", cmd_args, user_args))
+                        }
+                        (Some(cmd_args), None) => Some(cmd_args.to_string()),
+                        (None, Some(user_args)) => Some(user_args.to_string()),
+                        (None, None) => None,
+                    }
+                };
+
+                browser::open_command_with_args(url, browser_arg, final_args.as_deref(), debug)?;
             }
         },
         None => {

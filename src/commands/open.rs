@@ -58,13 +58,7 @@ pub fn execute(key: &str) -> Result<()> {
         .or(project.browser.as_deref())
         .unwrap_or_else(|| config_manager.get_default_browser());
 
-    browser::open_command_with_args(
-        url,
-        browser,
-        command.args.as_deref(),
-        command.url_encode,
-        false,
-    )?;
+    browser::open_command_with_args(url, Some(browser), command.args.as_deref(), false)?;
 
     Ok(())
 }

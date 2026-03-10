@@ -14,7 +14,9 @@
       "Bash(git add:*)",
       "Skill(build)",
       "Bash(assist run build)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(pwsh build.ps1:*)"
     ],
     "deny": []
   }

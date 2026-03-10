@@ -4,31 +4,13 @@ use std::process::Command;
 
 pub fn open_command_with_args(
     command: &str,
-    browser: &str,
+    browser: Option<&str>,
     args: Option<&str>,
-    url_encode: bool,
     debug: bool,
 ) -> Result<()> {
-    // Check if the command is a URL (starts with http)
-    if command.starts_with("http") {
-        // If there are arguments, append them to the URL with optional encoding
-        if let Some(args_str) = args {
-            if !args_str.is_empty() {
-                let url_with_args = if url_encode {
-                    let encoded_args = urlencoding::encode(args_str);
-                    format!("{}{}", command, encoded_args)
-                } else {
-                    format!("{}{}", command, args_str)
-                };
-                open_url_in_browser(&url_with_args, browser, debug)
-            } else {
-                open_url_in_browser(command, browser, debug)
-            }
-        } else {
-            open_url_in_browser(command, browser, debug)
-        }
+    if let Some(browser) = browser {
+        open_url_in_browser(command, browser, debug)
     } else {
-        // It's a terminal command, run it directly
         run_terminal_command(command, args, debug)
     }
 }

@@ -2,7 +2,6 @@ mod commands;
 mod config;
 mod utils;
 
-use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -39,27 +38,22 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+fn main() {
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Switch => {
-            commands::switch::execute()?;
-        }
-        Commands::Add { name } => {
-            commands::add::execute(name)?;
-        }
-        Commands::Current => {
-            commands::current::execute()?;
-        }
+    let result = match cli.command {
+        Commands::Switch => commands::switch::execute(),
+        Commands::Add { name } => commands::add::execute(name),
+        Commands::Current => commands::current::execute(),
         #[allow(deprecated)]
-        Commands::Open { key } => {
-            commands::open::execute(&key)?;
-        }
-        Commands::List { debug } => {
-            commands::list::execute(debug)?;
-        }
-    }
+        Commands::Open { key } => commands::open::execute(&key),
+        Commands::List { debug } => commands::list::execute(debug),
+    };
 
-    Ok(())
+    if let Err(e) = result {
+        eprintln!("\nError: {e:#}");
+        eprint!("\nPress Enter to exit...");
+        let _ = std::io::stdin().read_line(&mut String::new());
+        std::process::exit(1);
+    }
 }

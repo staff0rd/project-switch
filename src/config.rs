@@ -4,11 +4,6 @@ use serde_yaml::Value;
 use std::fs;
 use std::path::PathBuf;
 
-// Helper function to skip serializing false values
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShortcutsConfig {
     #[serde(default = "default_true")]
@@ -34,6 +29,7 @@ impl Default for ShortcutsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectCommand {
     pub key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,11 +38,10 @@ pub struct ProjectCommand {
     pub browser: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub url_encode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Project {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,6 +55,7 @@ pub struct Project {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include: Option<String>,
@@ -170,7 +166,6 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
         url: overlay.url.or(base.url),
         browser: overlay.browser.or(base.browser),
         args: overlay.args.or(base.args),
-        url_encode: base.url_encode || overlay.url_encode,
     }
 }
 

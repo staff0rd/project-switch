@@ -22,9 +22,7 @@ A background Windows service that registers a global ALT+SPACE hotkey. When trig
 
 ## Building
 
-If `/verify succeeds`, and we are finished, we should `/build`
-
-Building should happen after a set of changes are implemented to confirm no compilation errors.
+After every `/verify` that passes, always run `/build` immediately — no exceptions, do not wait to be asked.
 
 This will create binaries in the `bin/` directory:
 
