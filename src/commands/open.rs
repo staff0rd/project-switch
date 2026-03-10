@@ -16,7 +16,7 @@ pub fn execute(key: &str) -> Result<()> {
         } else {
             format!("https://{}", key)
         };
-        return browser::open_url_in_browser(&url, config_manager.get_default_browser());
+        return browser::open_url_in_browser(&url, config_manager.get_default_browser(), false);
     }
 
     let (current_project_name, project) = config_manager.resolve_current_project()
@@ -36,7 +36,7 @@ pub fn execute(key: &str) -> Result<()> {
                     .browser
                     .as_deref()
                     .unwrap_or_else(|| config_manager.get_default_browser());
-                return browser::open_url_in_browser(&url, browser);
+                return browser::open_url_in_browser(&url, browser, false);
             }
             anyhow::bail!(
                 "Command with key '{}' not found in project '{}' or global commands",
@@ -58,7 +58,13 @@ pub fn execute(key: &str) -> Result<()> {
         .or(project.browser.as_deref())
         .unwrap_or_else(|| config_manager.get_default_browser());
 
-    browser::open_command_with_args(url, browser, command.args.as_deref(), command.url_encode)?;
+    browser::open_command_with_args(
+        url,
+        browser,
+        command.args.as_deref(),
+        command.url_encode,
+        false,
+    )?;
 
     Ok(())
 }

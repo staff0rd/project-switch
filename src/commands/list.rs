@@ -252,7 +252,7 @@ impl Autocomplete for ListAutocomplete {
     }
 }
 
-pub fn execute() -> Result<()> {
+pub fn execute(debug: bool) -> Result<()> {
     let config_manager = ConfigManager::new()?;
 
     let resolved = config_manager.resolve_current_project();
@@ -368,7 +368,7 @@ pub fn execute() -> Result<()> {
     if is_file_path(&cleaned_input) {
         let path = std::path::Path::new(&cleaned_input);
         if path.exists() {
-            browser::launch_shortcut(&cleaned_input)?;
+            browser::launch_shortcut(&cleaned_input, debug)?;
             return Ok(());
         } else {
             anyhow::bail!("Path does not exist: '{}'", cleaned_input);
@@ -417,7 +417,7 @@ pub fn execute() -> Result<()> {
     match matched_item {
         Some(item) => match &item.kind {
             ListItemKind::Shortcut { path } => {
-                browser::launch_shortcut(path)?;
+                browser::launch_shortcut(path, debug)?;
             }
             ListItemKind::Command => {
                 // Find the original command for browser/args resolution
@@ -453,6 +453,7 @@ pub fn execute() -> Result<()> {
                     browser_name,
                     final_args.as_deref(),
                     selected_command.url_encode,
+                    debug,
                 )?;
             }
         },
@@ -468,7 +469,7 @@ pub fn execute() -> Result<()> {
                     .as_ref()
                     .and_then(|(_, p)| p.browser.as_deref())
                     .unwrap_or_else(|| config_manager.get_default_browser());
-                return browser::open_url_in_browser(&url, browser_name);
+                return browser::open_url_in_browser(&url, browser_name, debug);
             }
             anyhow::bail!("No command found matching '{}'", keyword);
         }

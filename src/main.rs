@@ -32,7 +32,11 @@ enum Commands {
         key: String,
     },
     /// List all openable items from the current project (interactive)
-    List,
+    List {
+        /// Print the full command and args before executing
+        #[arg(long)]
+        debug: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -52,8 +56,8 @@ fn main() -> Result<()> {
         Commands::Open { key } => {
             commands::open::execute(&key)?;
         }
-        Commands::List => {
-            commands::list::execute()?;
+        Commands::List { debug } => {
+            commands::list::execute(debug)?;
         }
     }
 

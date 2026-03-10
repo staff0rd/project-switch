@@ -7,6 +7,7 @@ pub fn open_command_with_args(
     browser: &str,
     args: Option<&str>,
     url_encode: bool,
+    debug: bool,
 ) -> Result<()> {
     // Check if the command is a URL (starts with http)
     if command.starts_with("http") {
@@ -19,41 +20,47 @@ pub fn open_command_with_args(
                 } else {
                     format!("{}{}", command, args_str)
                 };
-                open_url_in_browser(&url_with_args, browser)
+                open_url_in_browser(&url_with_args, browser, debug)
             } else {
-                open_url_in_browser(command, browser)
+                open_url_in_browser(command, browser, debug)
             }
         } else {
-            open_url_in_browser(command, browser)
+            open_url_in_browser(command, browser, debug)
         }
     } else {
         // It's a terminal command, run it directly
-        run_terminal_command(command, args)
+        run_terminal_command(command, args, debug)
     }
 }
 
-fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
+fn run_terminal_command(command: &str, args: Option<&str>, debug: bool) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
-        let mut cmd = Command::new("powershell");
-        cmd.args(["-Command", command]);
-
+        let mut cmd_args = vec!["-Command".to_string(), command.to_string()];
         if let Some(args_str) = args {
             if !args_str.is_empty() {
-                cmd.arg(args_str);
+                cmd_args.push(args_str.to_string());
             }
         }
-
+        if debug {
+            println!(
+                "{}",
+                format!("[debug] powershell {}", cmd_args.join(" ")).dimmed()
+            );
+        }
+        let mut cmd = Command::new("powershell");
+        cmd.args(&cmd_args);
         cmd.status()
     } else {
         let mut full_command = command.to_string();
-
         if let Some(args_str) = args {
             if !args_str.is_empty() {
                 full_command.push(' ');
                 full_command.push_str(args_str);
             }
         }
-
+        if debug {
+            println!("{}", format!("[debug] sh -c {}", full_command).dimmed());
+        }
         Command::new("sh").args(["-c", &full_command]).status()
     };
 
@@ -79,12 +86,22 @@ fn run_terminal_command(command: &str, args: Option<&str>) -> Result<()> {
     }
 }
 
-pub fn launch_shortcut(path: &str) -> Result<()> {
+pub fn launch_shortcut(path: &str, debug: bool) -> Result<()> {
     let status = if cfg!(target_os = "windows") {
+        let ps_cmd = format!("Start-Process '{}'", path);
+        if debug {
+            println!(
+                "{}",
+                format!("[debug] powershell -Command {}", ps_cmd).dimmed()
+            );
+        }
         Command::new("powershell")
-            .args(["-Command", &format!("Start-Process '{}'", path)])
+            .args(["-Command", &ps_cmd])
             .status()
     } else if cfg!(target_os = "macos") {
+        if debug {
+            println!("{}", format!("[debug] open {}", path).dimmed());
+        }
         Command::new("open").arg(path).status()
     } else {
         anyhow::bail!("Shortcut launching is not supported on this platform")
@@ -111,16 +128,20 @@ fn parse_browser_with_args(browser: &str) -> (&str, Vec<&str>) {
     }
 }
 
-pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
+pub fn open_url_in_browser(url: &str, browser: &str, debug: bool) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
         // Encode spaces so PowerShell doesn't split the URL when passing to Start-Process
         let url = &url.replace(' ', "%20");
         if browser.to_lowercase() == "default" {
+            let ps_cmd = format!("Set-Location C:\\; Start-Process '{}'", url);
+            if debug {
+                println!(
+                    "{}",
+                    format!("[debug] powershell -Command {}", ps_cmd).dimmed()
+                );
+            }
             Command::new("powershell")
-                .args([
-                    "-Command",
-                    &format!("Set-Location C:\\; Start-Process '{}'", url),
-                ])
+                .args(["-Command", &ps_cmd])
                 .status()
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
@@ -141,15 +162,35 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
                     url
                 )
             };
+            if debug {
+                println!(
+                    "{}",
+                    format!("[debug] powershell -Command {}", ps_command).dimmed()
+                );
+            }
             Command::new("powershell")
                 .args(["-Command", &ps_command])
                 .status()
         }
     } else if cfg!(target_os = "macos") {
         if browser.to_lowercase() == "default" {
+            if debug {
+                println!("{}", format!("[debug] open {}", url).dimmed());
+            }
             Command::new("open").arg(url).status()
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
+            if debug {
+                let extra = if extra_args.is_empty() {
+                    String::new()
+                } else {
+                    format!(" --args {}", extra_args.join(" "))
+                };
+                println!(
+                    "{}",
+                    format!("[debug] open -a {}{} {}", browser_cmd, extra, url).dimmed()
+                );
+            }
             let mut cmd = Command::new("open");
             cmd.args(["-a", browser_cmd]);
             if !extra_args.is_empty() {
@@ -163,9 +204,23 @@ pub fn open_url_in_browser(url: &str, browser: &str) -> Result<()> {
     } else {
         // Linux/Unix
         if browser.to_lowercase() == "default" {
+            if debug {
+                println!("{}", format!("[debug] xdg-open {}", url).dimmed());
+            }
             Command::new("xdg-open").arg(url).status()
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
+            if debug {
+                let extra = if extra_args.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", extra_args.join(" "))
+                };
+                println!(
+                    "{}",
+                    format!("[debug] {}{} {}", browser_cmd, extra, url).dimmed()
+                );
+            }
             let mut cmd = Command::new(browser_cmd);
             for arg in extra_args {
                 cmd.arg(arg);
