@@ -61,7 +61,6 @@ projects:
 global:
   - key: search
     url: https://google.com/search?q=
-    url_encode: true
 ```
 
 **Local file** (`~/.project-switch.yml`):

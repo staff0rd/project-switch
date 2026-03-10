@@ -23,6 +23,5 @@ projects:
 global:
   - key: search
     url: https://google.com/search?q=
-    url_encode: true
   - key: chatgpt
     url: https://chat.openai.com

@@ -456,6 +456,18 @@ pub fn execute(debug: bool) -> Result<()> {
                     None => None,
                 };
 
+                let final_url;
+                let effective_url = if browser_arg.is_some() {
+                    if let Some(ref user_args) = args {
+                        final_url = format!("{}{}", url, urlencoding::encode(user_args));
+                        &final_url
+                    } else {
+                        url
+                    }
+                } else {
+                    url
+                };
+
                 let final_args = if browser_arg.is_some() {
                     None
                 } else {
@@ -469,7 +481,12 @@ pub fn execute(debug: bool) -> Result<()> {
                     }
                 };
 
-                browser::open_command_with_args(url, browser_arg, final_args.as_deref(), debug)?;
+                browser::open_command_with_args(
+                    effective_url,
+                    browser_arg,
+                    final_args.as_deref(),
+                    debug,
+                )?;
             }
         },
         None => {
