@@ -35,6 +35,8 @@ pub struct ProjectCommand {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
@@ -164,9 +166,42 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
     ProjectCommand {
         key: overlay.key,
         url: overlay.url.or(base.url),
+        command: overlay.command.or(base.command),
         browser: overlay.browser.or(base.browser),
         args: overlay.args.or(base.args),
     }
+}
+
+fn validate_command_list(commands: &[ProjectCommand], context: &str) -> Result<()> {
+    for cmd in commands {
+        if cmd.url.is_some() && cmd.command.is_some() {
+            anyhow::bail!(
+                "Command '{}' in {} has both 'url' and 'command' — use one or the other",
+                cmd.key,
+                context
+            );
+        }
+        if cmd.command.is_some() && cmd.browser.is_some() {
+            anyhow::bail!(
+                "Command '{}' in {} has both 'command' and 'browser' — 'command' runs directly, not in a browser",
+                cmd.key,
+                context
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_commands(config: &Config) -> Result<()> {
+    if let Some(ref global) = config.global {
+        validate_command_list(global, "global commands")?;
+    }
+    for project in &config.projects {
+        if let Some(ref commands) = project.commands {
+            validate_command_list(commands, &format!("project '{}'", project.name))?;
+        }
+    }
+    Ok(())
 }
 
 pub struct ConfigManager {
@@ -202,6 +237,8 @@ impl ConfigManager {
 
             let raw_yaml: Value = serde_yaml::from_str(&contents)
                 .context("Failed to parse config file as raw YAML")?;
+
+            validate_commands(&local_config)?;
 
             let local_projects = local_config.projects.clone();
 

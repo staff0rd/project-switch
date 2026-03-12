@@ -27,6 +27,11 @@ projects:
       - key: github
         url: https://github.com/user/myapp
         browser: firefox  # Command-level browser
+      - key: build
+        command: cargo build --release  # Runs as terminal command, not in a browser
+      - key: logs
+        command: Get-Content -Tail 50 -Wait logs/app.log
+        args: -ErrorAction SilentlyContinue  # Extra args appended to the command
   - name: website
     path: /home/user/projects/website
     description: Company website

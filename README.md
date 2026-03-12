@@ -58,6 +58,8 @@ projects:
         url: https://docs.myapp.com
       - key: github
         url: https://github.com/user/myapp
+      - key: build
+        command: cargo build --release  # Runs as terminal command, not in browser
 global:
   - key: search
     url: https://google.com/search?q=

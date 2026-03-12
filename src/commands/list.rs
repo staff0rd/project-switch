@@ -6,6 +6,15 @@ use anyhow::Result;
 use colored::*;
 use inquire::Autocomplete;
 
+fn merge_args(cmd_args: Option<&str>, user_args: Option<&str>) -> Option<String> {
+    match (cmd_args, user_args) {
+        (Some(c), Some(u)) => Some(format!("{} {}", c, u)),
+        (Some(c), None) => Some(c.to_string()),
+        (None, Some(u)) => Some(u.to_string()),
+        (None, None) => None,
+    }
+}
+
 fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars();
@@ -283,7 +292,11 @@ pub fn execute(debug: bool) -> Result<()> {
         .iter()
         .map(|cmd| ListItem {
             key: cmd.key.clone(),
-            display_detail: cmd.url.clone().unwrap_or_default(),
+            display_detail: cmd
+                .url
+                .clone()
+                .or_else(|| cmd.command.clone())
+                .unwrap_or_default(),
             kind: ListItemKind::Command,
         })
         .collect();
@@ -426,67 +439,66 @@ pub fn execute(debug: bool) -> Result<()> {
                     .find(|cmd| cmd.key.to_lowercase() == item.key.to_lowercase())
                     .ok_or_else(|| anyhow::anyhow!("Command '{}' not found", item.key))?;
 
-                let url = selected_command.url.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Command '{}' does not have a URL configured",
-                        selected_command.key
-                    )
-                })?;
+                if let Some(ref cmd_str) = selected_command.command {
+                    // command field: always run as terminal command, never use browser
+                    let final_args = merge_args(selected_command.args.as_deref(), args.as_deref());
+                    browser::open_command_with_args(cmd_str, None, final_args.as_deref(), debug)?;
+                } else {
+                    let url = selected_command.url.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Command '{}' has neither 'url' nor 'command' configured",
+                            selected_command.key
+                        )
+                    })?;
 
-                // Resolve browser: if any browser is configured, this is a browser command.
-                // If no browser is configured at any level, treat url as a terminal command.
-                let resolved_browser = selected_command
-                    .browser
-                    .as_deref()
-                    .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
-                    .or_else(|| Some(config_manager.get_default_browser()));
+                    // Resolve browser: if any browser is configured, this is a browser command.
+                    // If no browser is configured at any level, treat url as a terminal command.
+                    let resolved_browser = selected_command
+                        .browser
+                        .as_deref()
+                        .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
+                        .or_else(|| Some(config_manager.get_default_browser()));
 
-                let effective_browser;
-                let browser_arg = match resolved_browser {
-                    Some(b) => {
-                        let b = match selected_command.args.as_deref() {
-                            Some(a) => {
-                                effective_browser = format!("{} {}", b, a);
-                                effective_browser.as_str()
-                            }
-                            None => b,
-                        };
-                        Some(b)
-                    }
-                    None => None,
-                };
+                    let effective_browser;
+                    let browser_arg = match resolved_browser {
+                        Some(b) => {
+                            let b = match selected_command.args.as_deref() {
+                                Some(a) => {
+                                    effective_browser = format!("{} {}", b, a);
+                                    effective_browser.as_str()
+                                }
+                                None => b,
+                            };
+                            Some(b)
+                        }
+                        None => None,
+                    };
 
-                let final_url;
-                let effective_url = if browser_arg.is_some() {
-                    if let Some(ref user_args) = args {
-                        final_url = format!("{}{}", url, urlencoding::encode(user_args));
-                        &final_url
+                    let final_url;
+                    let effective_url = if browser_arg.is_some() {
+                        if let Some(ref user_args) = args {
+                            final_url = format!("{}{}", url, urlencoding::encode(user_args));
+                            &final_url
+                        } else {
+                            url
+                        }
                     } else {
                         url
-                    }
-                } else {
-                    url
-                };
+                    };
 
-                let final_args = if browser_arg.is_some() {
-                    None
-                } else {
-                    match (selected_command.args.as_deref(), args.as_deref()) {
-                        (Some(cmd_args), Some(user_args)) => {
-                            Some(format!("{} {}", cmd_args, user_args))
-                        }
-                        (Some(cmd_args), None) => Some(cmd_args.to_string()),
-                        (None, Some(user_args)) => Some(user_args.to_string()),
-                        (None, None) => None,
-                    }
-                };
+                    let final_args = if browser_arg.is_some() {
+                        None
+                    } else {
+                        merge_args(selected_command.args.as_deref(), args.as_deref())
+                    };
 
-                browser::open_command_with_args(
-                    effective_url,
-                    browser_arg,
-                    final_args.as_deref(),
-                    debug,
-                )?;
+                    browser::open_command_with_args(
+                        effective_url,
+                        browser_arg,
+                        final_args.as_deref(),
+                        debug,
+                    )?;
+                }
             }
         },
         None => {
