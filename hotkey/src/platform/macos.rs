@@ -7,6 +7,11 @@ pub fn binary_name() -> &'static str {
     "project-switch"
 }
 
+/// No-op on macOS — trampoline is only needed on Windows multi-profile setups.
+pub fn trampoline_if_needed() -> bool {
+    false
+}
+
 pub fn kill_existing_hotkey_instances() {
     let our_pid = std::process::id().to_string();
     let output = Command::new("pgrep")

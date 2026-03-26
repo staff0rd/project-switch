@@ -20,6 +20,10 @@ enum UserEvent {
 }
 
 fn main() {
+    if platform::trampoline_if_needed() {
+        return;
+    }
+
     platform::kill_existing_hotkey_instances();
 
     let exe_dir = std::env::current_exe()
