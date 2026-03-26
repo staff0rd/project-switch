@@ -62,3 +62,12 @@ run:
       - --pattern
       - "**/*.rs"
       - .
+  - name: test
+    command: docker
+    args:
+      - compose
+      - run
+      - --rm
+      - lint
+      - cargo
+      - test

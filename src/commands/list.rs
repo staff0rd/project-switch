@@ -6,6 +6,15 @@ use anyhow::Result;
 use colored::*;
 use inquire::Autocomplete;
 
+fn encode_url_args(url: &str, user_args: &str) -> String {
+    let encoded: String = user_args
+        .split('/')
+        .map(|segment| urlencoding::encode(segment).into_owned())
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("{}{}", url, encoded)
+}
+
 fn merge_args(cmd_args: Option<&str>, user_args: Option<&str>) -> Option<String> {
     match (cmd_args, user_args) {
         (Some(c), Some(u)) => Some(format!("{} {}", c, u)),
@@ -477,7 +486,7 @@ pub fn execute(debug: bool) -> Result<()> {
                     let final_url;
                     let effective_url = if browser_arg.is_some() {
                         if let Some(ref user_args) = args {
-                            final_url = format!("{}{}", url, urlencoding::encode(user_args));
+                            final_url = encode_url_args(url, user_args);
                             &final_url
                         } else {
                             url
@@ -520,4 +529,27 @@ pub fn execute(debug: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_url_args_preserves_slashes() {
+        // gh config: url: https://github.com/ with user_args "staff0rd/assist"
+        // should produce https://github.com/staff0rd/assist, not https://github.com/staff0rd%2Fassist
+        assert_eq!(
+            encode_url_args("https://github.com/", "staff0rd/assist"),
+            "https://github.com/staff0rd/assist"
+        );
+    }
+
+    #[test]
+    fn encode_url_args_still_encodes_spaces() {
+        assert_eq!(
+            encode_url_args("https://www.google.com/search?q=", "hello world"),
+            "https://www.google.com/search?q=hello%20world"
+        );
+    }
 }
