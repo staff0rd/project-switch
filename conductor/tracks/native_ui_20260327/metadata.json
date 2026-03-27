@@ -1,0 +1,8 @@
+{
+  "track_id": "native_ui_20260327",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-03-27T09:30:00Z",
+  "updated_at": "2026-03-27T09:30:00Z",
+  "description": "Migrate launcher from CLI to native windowed UI"
+}
