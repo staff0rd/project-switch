@@ -132,13 +132,18 @@ impl eframe::App for LauncherApp {
                     }
                     let selected = self.state.selected.min(entries.len().saturating_sub(1));
 
-                    // Enter on a directory navigates into it; on a file opens it
+                    // Enter: trailing backslash = navigate into dir, otherwise open
                     if key_enter && !entries.is_empty() {
-                        let entry = &entries[selected];
-                        if entry.is_dir {
-                            self.set_path_input(&entry.full_path);
+                        let path = entries[selected].full_path.clone();
+                        if path.ends_with('\\') {
+                            self.set_path_input(&path);
                         } else {
-                            self.execute_current();
+                            self.state.hide();
+                            std::thread::spawn(move || {
+                                if let Err(e) = crate::commands::list::execute_action(&path) {
+                                    eprintln!("Action error: {e:#}");
+                                }
+                            });
                         }
                         return;
                     }
