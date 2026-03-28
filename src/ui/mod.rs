@@ -1,5 +1,6 @@
-// egui/eframe windowed launcher — text input, filtered list, keyboard nav.
-// Implementation: Phase 2 (Core Launcher Window).
+//! egui/eframe windowed launcher — text input, filtered list, keyboard nav.
+
+mod state;
 
 #[allow(unused_imports)]
 pub use eframe;
