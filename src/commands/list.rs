@@ -1,7 +1,7 @@
 use crate::config::ConfigManager;
 use crate::launcher::{
-    encode_url_args, eval_calculator, filter_items, is_file_path, merge_args, resolve_item,
-    strip_ansi_codes, ListItem, ListItemKind,
+    encode_url_args, eval_calculator, filter_items, get_path_entries, is_file_path, merge_args,
+    resolve_item, strip_ansi_codes, ListItem, ListItemKind,
 };
 use crate::utils::browser;
 use crate::utils::shortcuts;
@@ -13,87 +13,17 @@ use inquire::Autocomplete;
 const PATH_PREFIX: &str = "[path] ";
 
 fn get_file_suggestions(input: &str) -> Vec<String> {
-    // Normalize forward slashes to backslashes
-    let normalized = input.replace('/', "\\");
-
-    // Handle bare drive letter like "c:" -> "c:\"
-    let working = if normalized.len() == 2
-        && normalized.as_bytes()[0].is_ascii_alphabetic()
-        && normalized.as_bytes()[1] == b':'
-    {
-        format!("{}\\", normalized)
-    } else {
-        normalized
-    };
-
-    // Split into directory portion and partial name filter
-    let (initial_dir, initial_filter) = match working.rfind('\\') {
-        Some(pos) => (working[..=pos].to_string(), working[pos + 1..].to_string()),
-        None => return Vec::new(),
-    };
-
-    let mut result = Vec::new();
-    let mut dir_part = initial_dir;
-    let mut filter = initial_filter;
-    let mut show_self = true;
-
-    // Loop to auto-expand when a filter matches exactly one directory
-    for _ in 0..10 {
-        // Show directory itself when browsing contents (empty filter), first level only
-        if filter.is_empty() && show_self {
-            result.push(format!("{}{}", PATH_PREFIX.cyan(), dir_part.bold().cyan()));
-        }
-
-        let entries = match std::fs::read_dir(&dir_part) {
-            Ok(e) => e,
-            Err(_) => break,
-        };
-
-        let filter_lower = filter.to_lowercase();
-        let mut dirs: Vec<(String, String)> = Vec::new();
-        let mut files: Vec<(String, String)> = Vec::new();
-
-        for entry in entries.flatten() {
-            let name = match entry.file_name().into_string() {
-                Ok(n) => n,
-                Err(_) => continue,
-            };
-
-            if !filter.is_empty() && !name.to_lowercase().starts_with(&filter_lower) {
-                continue;
-            }
-
-            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-            if is_dir {
-                dirs.push((format!("{}{}\\", dir_part, name), name));
+    let entries = get_path_entries(input);
+    entries
+        .into_iter()
+        .map(|entry| {
+            if entry.is_dir {
+                format!("{}{}", PATH_PREFIX.cyan(), entry.full_path.bold().cyan())
             } else {
-                files.push((format!("{}{}", dir_part, name), name));
+                format!("{}{}", PATH_PREFIX.cyan(), entry.full_path)
             }
-        }
-
-        dirs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
-        files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
-
-        for (full, _) in &dirs {
-            result.push(format!("{}{}", PATH_PREFIX.cyan(), full.bold().cyan()));
-        }
-
-        // Single directory match, no files — auto-expand into it
-        if dirs.len() == 1 && files.is_empty() {
-            dir_part = dirs[0].0.clone();
-            filter = String::new();
-            show_self = false;
-            continue;
-        }
-
-        for (full, _) in &files {
-            result.push(format!("{}{}", PATH_PREFIX.cyan(), full));
-        }
-
-        break;
-    }
-
-    result
+        })
+        .collect()
 }
 
 const APP_PREFIX: &str = "[app] ";

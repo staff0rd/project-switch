@@ -94,6 +94,93 @@ pub fn eval_calculator(expr: &str) -> Result<String, String> {
     }
 }
 
+/// A file/directory entry returned by path browsing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathEntry {
+    pub full_path: String,
+    pub is_dir: bool,
+}
+
+/// List filesystem entries matching a path input. Auto-expands single directory matches.
+pub fn get_path_entries(input: &str) -> Vec<PathEntry> {
+    let normalized = input.replace('/', "\\");
+
+    let working = if normalized.len() == 2
+        && normalized.as_bytes()[0].is_ascii_alphabetic()
+        && normalized.as_bytes()[1] == b':'
+    {
+        format!("{}\\", normalized)
+    } else {
+        normalized
+    };
+
+    let (initial_dir, initial_filter) = match working.rfind('\\') {
+        Some(pos) => (working[..=pos].to_string(), working[pos + 1..].to_string()),
+        None => return Vec::new(),
+    };
+
+    let mut result = Vec::new();
+    let mut dir_part = initial_dir;
+    let mut filter = initial_filter;
+
+    for _ in 0..10 {
+        let entries = match std::fs::read_dir(&dir_part) {
+            Ok(e) => e,
+            Err(_) => break,
+        };
+
+        let filter_lower = filter.to_lowercase();
+        let mut dirs: Vec<(String, String)> = Vec::new();
+        let mut files: Vec<(String, String)> = Vec::new();
+
+        for entry in entries.flatten() {
+            let name = match entry.file_name().into_string() {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            if !filter.is_empty() && !name.to_lowercase().starts_with(&filter_lower) {
+                continue;
+            }
+
+            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+            if is_dir {
+                dirs.push((format!("{}{}\\", dir_part, name), name));
+            } else {
+                files.push((format!("{}{}", dir_part, name), name));
+            }
+        }
+
+        dirs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+        files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+
+        for (full, _) in &dirs {
+            result.push(PathEntry {
+                full_path: full.clone(),
+                is_dir: true,
+            });
+        }
+
+        // Single directory match, no files — auto-expand
+        if dirs.len() == 1 && files.is_empty() {
+            dir_part = dirs[0].0.clone();
+            filter = String::new();
+            continue;
+        }
+
+        for (full, _) in &files {
+            result.push(PathEntry {
+                full_path: full.clone(),
+                is_dir: false,
+            });
+        }
+
+        break;
+    }
+
+    result
+}
+
 /// Filter a list of items by query string, returning matching items in order.
 /// When the query contains a space (i.e. keyword + args), use exact key match
 /// so that "g some text" only matches a "g" key, not everything containing "g".

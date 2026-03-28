@@ -1,6 +1,6 @@
 //! egui launcher window — renders the text input and filtered list.
 
-use crate::launcher::ListItemKind;
+use crate::launcher::{get_path_entries, ListItemKind};
 use crate::ui::state::{InputMode, Visibility, WindowState};
 use eframe::egui;
 
@@ -122,15 +122,35 @@ impl eframe::App for LauncherApp {
                     });
                 }
                 InputMode::FilePath => {
-                    // File path mode — show the path and hint
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("File path detected - press Enter to open")
-                            .color(egui::Color32::GRAY),
-                    );
+                    let entries = get_path_entries(&self.state.input);
+
                     if key_enter {
                         self.execute_current();
+                        return;
                     }
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for entry in &entries {
+                            let label = if entry.is_dir {
+                                egui::RichText::new(&entry.full_path)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(100, 180, 255))
+                            } else {
+                                egui::RichText::new(&entry.full_path)
+                            };
+                            if ui.selectable_label(false, label).clicked() {
+                                self.state.input = entry.full_path.clone();
+                                self.prev_input = self.state.input.clone();
+                                let new_input = self.state.input.clone();
+                                self.state.set_input(new_input);
+                            }
+                        }
+                        if entries.is_empty() {
+                            ui.label(
+                                egui::RichText::new("No entries found").color(egui::Color32::GRAY),
+                            );
+                        }
+                    });
                 }
                 InputMode::Normal => {
                     let filtered = self.state.filtered_items();
