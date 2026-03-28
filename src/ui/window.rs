@@ -1,7 +1,7 @@
 //! egui launcher window — renders the text input and filtered list.
 
 use crate::launcher::ListItemKind;
-use crate::ui::state::{Visibility, WindowState};
+use crate::ui::state::{InputMode, Visibility, WindowState};
 use eframe::egui;
 
 pub struct LauncherApp {
@@ -18,11 +18,28 @@ impl LauncherApp {
             prev_input: String::new(),
         }
     }
+
+    fn execute_current(&mut self) {
+        let input = self.state.input.clone();
+
+        // Calculator mode — nothing to execute
+        if input.starts_with('=') {
+            return;
+        }
+
+        self.state.hide();
+
+        // Run action in background so the window closes immediately
+        std::thread::spawn(move || {
+            if let Err(e) = crate::commands::list::execute_action(&input) {
+                eprintln!("Action error: {e:#}");
+            }
+        });
+    }
 }
 
 impl eframe::App for LauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Handle visibility
         if self.state.visibility == Visibility::Hidden {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             return;
@@ -30,7 +47,7 @@ impl eframe::App for LauncherApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Draggable title bar area
+            // Draggable title bar
             let (title_rect, response) =
                 ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), egui::Sense::drag());
             if response.dragged() {
@@ -50,20 +67,18 @@ impl eframe::App for LauncherApp {
                     .hint_text("Type to filter...")
                     .desired_width(f32::INFINITY),
             );
-
-            // Auto-focus input on first frame only
             if !input_response.has_focus() {
                 input_response.request_focus();
             }
 
-            // Detect input changes (egui mutates input directly via TextEdit)
+            // Detect input changes
             if self.state.input != self.prev_input {
                 self.prev_input = self.state.input.clone();
                 let new_input = self.state.input.clone();
                 self.state.set_input(new_input);
             }
 
-            // Keyboard navigation
+            // Keyboard
             let key_down = ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
             let key_up = ui.input(|i| i.key_pressed(egui::Key::ArrowUp));
             let key_escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -80,51 +95,85 @@ impl eframe::App for LauncherApp {
                 return;
             }
 
-            // Get filtered items for display
-            let filtered = self.state.filtered_items();
-            let selected = self.state.selected;
-
-            if key_enter && !filtered.is_empty() && selected < filtered.len() {
-                // TODO: Phase 3 will implement action execution
-                self.state.hide();
-                return;
-            }
-
             ui.separator();
 
-            // Scrollable list
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, item) in filtered.iter().enumerate() {
-                    let is_selected = i == selected;
-
-                    let text = match &item.kind {
-                        ListItemKind::Command => {
-                            let detail = if item.display_detail.len() > 50 {
-                                format!("{}...", &item.display_detail[..47])
-                            } else {
-                                item.display_detail.clone()
-                            };
-                            format!("{}  -  {}", item.key, detail)
+            // Render based on input mode
+            match self.state.input_mode() {
+                InputMode::Calculator { result } => {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(20.0);
+                        match result {
+                            Ok(value) => {
+                                ui.label(
+                                    egui::RichText::new(format!("= {}", value))
+                                        .size(28.0)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(100, 200, 100)),
+                                );
+                            }
+                            Err(msg) => {
+                                ui.label(
+                                    egui::RichText::new(msg)
+                                        .size(16.0)
+                                        .color(egui::Color32::GRAY),
+                                );
+                            }
                         }
-                        ListItemKind::Shortcut { .. } => {
-                            format!("[app] {}", item.key)
-                        }
-                    };
-
-                    let label = if is_selected {
-                        egui::RichText::new(&text).strong()
-                    } else {
-                        egui::RichText::new(&text)
-                    };
-
-                    let response = ui.selectable_label(is_selected, label);
-
-                    // Scroll selected item into view only when navigating
-                    if is_selected && (key_down || key_up) {
-                        response.scroll_to_me(Some(egui::Align::Center));
+                    });
+                }
+                InputMode::FilePath => {
+                    // File path mode — show the path and hint
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new("File path detected - press Enter to open")
+                            .color(egui::Color32::GRAY),
+                    );
+                    if key_enter {
+                        self.execute_current();
                     }
                 }
-            });
+                InputMode::Normal => {
+                    let filtered = self.state.filtered_items();
+                    let selected = self.state.selected;
+
+                    if key_enter && !filtered.is_empty() && selected < filtered.len() {
+                        self.execute_current();
+                        return;
+                    }
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for (i, item) in filtered.iter().enumerate() {
+                            let is_selected = i == selected;
+
+                            let text = match &item.kind {
+                                ListItemKind::Command => {
+                                    let detail = if item.display_detail.len() > 50 {
+                                        format!("{}...", &item.display_detail[..47])
+                                    } else {
+                                        item.display_detail.clone()
+                                    };
+                                    format!("{}  -  {}", item.key, detail)
+                                }
+                                ListItemKind::Shortcut { .. } => {
+                                    format!("[app] {}", item.key)
+                                }
+                            };
+
+                            let label = if is_selected {
+                                egui::RichText::new(&text).strong()
+                            } else {
+                                egui::RichText::new(&text)
+                            };
+
+                            let response = ui.selectable_label(is_selected, label);
+
+                            if is_selected && (key_down || key_up) {
+                                response.scroll_to_me(Some(egui::Align::Center));
+                            }
+                        }
+                    });
+                }
+            }
         });
     }
 }

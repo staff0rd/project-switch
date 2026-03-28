@@ -247,6 +247,117 @@ fn load_items(
     (all_commands, all_items)
 }
 
+/// Execute an action from the GUI launcher. Called when user presses Enter.
+/// Takes the raw input text from the GUI and dispatches the appropriate action.
+pub fn execute_action(input: &str) -> Result<()> {
+    let config_manager = ConfigManager::new()?;
+    let resolved = config_manager.resolve_current_project();
+
+    // File path mode
+    if is_file_path(input) {
+        let path = std::path::Path::new(input);
+        if path.exists() {
+            browser::launch_shortcut(input, false)?;
+            return Ok(());
+        } else {
+            anyhow::bail!("Path does not exist: '{}'", input);
+        }
+    }
+
+    let (sorted_commands, all_items) = load_items(&config_manager);
+
+    let keyword = input.split_whitespace().next().unwrap_or(input);
+
+    match resolve_item(&all_items, input) {
+        Some((item, args)) => match &item.kind {
+            ListItemKind::Shortcut { path } => {
+                browser::launch_shortcut(path, false)?;
+            }
+            ListItemKind::Command => {
+                let selected_command = sorted_commands
+                    .iter()
+                    .find(|cmd| cmd.key.to_lowercase() == item.key.to_lowercase())
+                    .ok_or_else(|| anyhow::anyhow!("Command '{}' not found", item.key))?;
+
+                if let Some(ref cmd_str) = selected_command.command {
+                    let final_args = merge_args(selected_command.args.as_deref(), args.as_deref());
+                    browser::open_command_with_args(cmd_str, None, final_args.as_deref(), false)?;
+                } else {
+                    let url = selected_command.url.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Command '{}' has neither 'url' nor 'command' configured",
+                            selected_command.key
+                        )
+                    })?;
+
+                    let resolved_browser = selected_command
+                        .browser
+                        .as_deref()
+                        .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
+                        .or_else(|| Some(config_manager.get_default_browser()));
+
+                    let effective_browser;
+                    let browser_arg = match resolved_browser {
+                        Some(b) => {
+                            let b = match selected_command.args.as_deref() {
+                                Some(a) => {
+                                    effective_browser = format!("{} {}", b, a);
+                                    effective_browser.as_str()
+                                }
+                                None => b,
+                            };
+                            Some(b)
+                        }
+                        None => None,
+                    };
+
+                    let final_url;
+                    let effective_url = if browser_arg.is_some() {
+                        if let Some(ref user_args) = args {
+                            final_url = encode_url_args(url, user_args);
+                            &final_url
+                        } else {
+                            url
+                        }
+                    } else {
+                        url
+                    };
+
+                    let final_args = if browser_arg.is_some() {
+                        None
+                    } else {
+                        merge_args(selected_command.args.as_deref(), args.as_deref())
+                    };
+
+                    browser::open_command_with_args(
+                        effective_url,
+                        browser_arg,
+                        final_args.as_deref(),
+                        false,
+                    )?;
+                }
+            }
+        },
+        None => {
+            if is_url(keyword) {
+                let url = if keyword.starts_with("http://") || keyword.starts_with("https://") {
+                    keyword.to_string()
+                } else {
+                    format!("https://{}", keyword)
+                };
+                let browser_name = resolved
+                    .as_ref()
+                    .and_then(|(_, p)| p.browser.as_deref())
+                    .unwrap_or_else(|| config_manager.get_default_browser());
+                return browser::open_url_in_browser(&url, browser_name, false);
+            }
+            anyhow::bail!("No command found matching '{}'", keyword);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn execute_gui() -> Result<()> {
     let config_manager = ConfigManager::new()?;
     let display_name = config_manager
@@ -292,16 +403,15 @@ pub fn execute_gui() -> Result<()> {
     .map_err(|e| anyhow::anyhow!("GUI error: {}", e))
 }
 
-pub fn execute(debug: bool) -> Result<()> {
+pub fn execute(_debug: bool) -> Result<()> {
     let config_manager = ConfigManager::new()?;
 
-    let resolved = config_manager.resolve_current_project();
-    let display_name = resolved
-        .as_ref()
+    let display_name = config_manager
+        .resolve_current_project()
         .map(|(name, _)| name.as_str())
         .unwrap_or("global");
 
-    let (sorted_commands, all_items) = load_items(&config_manager);
+    let (_, all_items) = load_items(&config_manager);
 
     if all_items.is_empty() {
         println!(
@@ -341,7 +451,7 @@ pub fn execute(debug: bool) -> Result<()> {
         }
     }
 
-    // Clean the input
+    // Clean the input (strip ANSI codes from inquire's colored output)
     let cleaned_input = {
         let stripped = strip_ansi_codes(&user_input);
         if let Some(arrow_pos) = stripped.find(" → ") {
@@ -355,113 +465,5 @@ pub fn execute(debug: bool) -> Result<()> {
         }
     };
 
-    // Handle file paths early (before keyword split, since paths can contain spaces)
-    if is_file_path(&cleaned_input) {
-        let path = std::path::Path::new(&cleaned_input);
-        if path.exists() {
-            browser::launch_shortcut(&cleaned_input, debug)?;
-            return Ok(());
-        } else {
-            anyhow::bail!("Path does not exist: '{}'", cleaned_input);
-        }
-    }
-
-    let keyword = cleaned_input
-        .split_whitespace()
-        .next()
-        .unwrap_or(&cleaned_input);
-
-    match resolve_item(&all_items, &cleaned_input) {
-        Some((item, args)) => match &item.kind {
-            ListItemKind::Shortcut { path } => {
-                browser::launch_shortcut(path, debug)?;
-            }
-            ListItemKind::Command => {
-                // Find the original command for browser/args resolution
-                let selected_command = sorted_commands
-                    .iter()
-                    .find(|cmd| cmd.key.to_lowercase() == item.key.to_lowercase())
-                    .ok_or_else(|| anyhow::anyhow!("Command '{}' not found", item.key))?;
-
-                if let Some(ref cmd_str) = selected_command.command {
-                    // command field: always run as terminal command, never use browser
-                    let final_args = merge_args(selected_command.args.as_deref(), args.as_deref());
-                    browser::open_command_with_args(cmd_str, None, final_args.as_deref(), debug)?;
-                } else {
-                    let url = selected_command.url.as_ref().ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Command '{}' has neither 'url' nor 'command' configured",
-                            selected_command.key
-                        )
-                    })?;
-
-                    // Resolve browser: if any browser is configured, this is a browser command.
-                    // If no browser is configured at any level, treat url as a terminal command.
-                    let resolved_browser = selected_command
-                        .browser
-                        .as_deref()
-                        .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
-                        .or_else(|| Some(config_manager.get_default_browser()));
-
-                    let effective_browser;
-                    let browser_arg = match resolved_browser {
-                        Some(b) => {
-                            let b = match selected_command.args.as_deref() {
-                                Some(a) => {
-                                    effective_browser = format!("{} {}", b, a);
-                                    effective_browser.as_str()
-                                }
-                                None => b,
-                            };
-                            Some(b)
-                        }
-                        None => None,
-                    };
-
-                    let final_url;
-                    let effective_url = if browser_arg.is_some() {
-                        if let Some(ref user_args) = args {
-                            final_url = encode_url_args(url, user_args);
-                            &final_url
-                        } else {
-                            url
-                        }
-                    } else {
-                        url
-                    };
-
-                    let final_args = if browser_arg.is_some() {
-                        None
-                    } else {
-                        merge_args(selected_command.args.as_deref(), args.as_deref())
-                    };
-
-                    browser::open_command_with_args(
-                        effective_url,
-                        browser_arg,
-                        final_args.as_deref(),
-                        debug,
-                    )?;
-                }
-            }
-        },
-        None => {
-            // No matches — check if the input looks like a URL
-            if is_url(keyword) {
-                let url = if keyword.starts_with("http://") || keyword.starts_with("https://") {
-                    keyword.to_string()
-                } else {
-                    format!("https://{}", keyword)
-                };
-                let browser_name = resolved
-                    .as_ref()
-                    .and_then(|(_, p)| p.browser.as_deref())
-                    .unwrap_or_else(|| config_manager.get_default_browser());
-                return browser::open_url_in_browser(&url, browser_name, debug);
-            }
-            anyhow::bail!("No command found matching '{}'", keyword);
-        }
-    }
-
-    Ok(())
+    execute_action(&cleaned_input)
 }

@@ -3,7 +3,18 @@
 //! Manages visibility, input, filtering, selection, and transitions
 //! independently of the GUI framework for testability.
 
-use crate::launcher::{filter_items, ListItem};
+use crate::launcher::{eval_calculator, filter_items, is_file_path, ListItem};
+
+/// The current input mode, derived from the input text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InputMode {
+    /// Normal item filtering mode.
+    Normal,
+    /// Calculator mode (input starts with `=`).
+    Calculator { result: Result<String, String> },
+    /// File path browsing mode.
+    FilePath,
+}
 
 /// Whether the launcher window is visible.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -72,6 +83,26 @@ impl WindowState {
     /// Move selection up.
     pub fn navigate_up(&mut self) {
         self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// Determine the current input mode.
+    pub fn input_mode(&self) -> InputMode {
+        if let Some(expr) = self.input.strip_prefix('=') {
+            let expr = expr.trim();
+            if expr.is_empty() {
+                InputMode::Calculator {
+                    result: Err("type an expression".to_string()),
+                }
+            } else {
+                InputMode::Calculator {
+                    result: eval_calculator(expr),
+                }
+            }
+        } else if is_file_path(&self.input) {
+            InputMode::FilePath
+        } else {
+            InputMode::Normal
+        }
     }
 
     /// Get the currently filtered items.
@@ -271,6 +302,74 @@ mod tests {
         state.navigate_down();
         let filtered = state.filtered_items();
         assert_eq!(filtered[state.selected].key, "jira");
+    }
+
+    // --- Input modes ---
+
+    #[test]
+    fn input_mode_normal_by_default() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        assert_eq!(state.input_mode(), InputMode::Normal);
+    }
+
+    #[test]
+    fn input_mode_normal_with_text() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("github".to_string());
+        assert_eq!(state.input_mode(), InputMode::Normal);
+    }
+
+    #[test]
+    fn input_mode_calculator_empty_expr() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("=".to_string());
+        assert!(matches!(
+            state.input_mode(),
+            InputMode::Calculator { result: Err(_) }
+        ));
+    }
+
+    #[test]
+    fn input_mode_calculator_valid_expr() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("=5+3".to_string());
+        assert_eq!(
+            state.input_mode(),
+            InputMode::Calculator {
+                result: Ok("8".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn input_mode_calculator_invalid_expr() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("=abc".to_string());
+        assert!(matches!(
+            state.input_mode(),
+            InputMode::Calculator { result: Err(_) }
+        ));
+    }
+
+    #[test]
+    fn input_mode_file_path_drive_letter() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("C:\\Users".to_string());
+        assert_eq!(state.input_mode(), InputMode::FilePath);
+    }
+
+    #[test]
+    fn input_mode_file_path_unc() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("\\\\server\\share".to_string());
+        assert_eq!(state.input_mode(), InputMode::FilePath);
     }
 
     // --- set_items ---
