@@ -50,7 +50,9 @@ pub fn trampoline_if_needed() -> bool {
     // Relaunch from local copy
     let local_exe = dest.join("project-switch-hotkey.exe");
     if local_exe.exists() {
-        let _ = Command::new(&local_exe).spawn();
+        let _ = Command::new(&local_exe)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
     }
 
     true
