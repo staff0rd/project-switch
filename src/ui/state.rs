@@ -73,11 +73,16 @@ impl WindowState {
         self.update_filtered_count();
     }
 
-    /// Move selection down.
-    pub fn navigate_down(&mut self) {
-        if self.selected < self.filtered_count.saturating_sub(1) {
+    /// Move selection down, clamped to the given count (or filtered_count if None).
+    pub fn navigate_down_bounded(&mut self, count: usize) {
+        if self.selected < count.saturating_sub(1) {
             self.selected += 1;
         }
+    }
+
+    /// Move selection down within the filtered item list.
+    pub fn navigate_down(&mut self) {
+        self.navigate_down_bounded(self.filtered_count);
     }
 
     /// Move selection up.

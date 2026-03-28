@@ -19,6 +19,13 @@ impl LauncherApp {
         }
     }
 
+    fn set_path_input(&mut self, path: &str) {
+        self.state.input = path.to_string();
+        self.prev_input = self.state.input.clone();
+        let new_input = self.state.input.clone();
+        self.state.set_input(new_input);
+    }
+
     fn execute_current(&mut self) {
         let input = self.state.input.clone();
 
@@ -84,12 +91,6 @@ impl eframe::App for LauncherApp {
             let key_escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
             let key_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
 
-            if key_down {
-                self.state.navigate_down();
-            }
-            if key_up {
-                self.state.navigate_up();
-            }
             if key_escape {
                 self.state.hide();
                 return;
@@ -123,14 +124,28 @@ impl eframe::App for LauncherApp {
                 }
                 InputMode::FilePath => {
                     let entries = get_path_entries(&self.state.input);
+                    if key_down {
+                        self.state.navigate_down_bounded(entries.len());
+                    }
+                    if key_up {
+                        self.state.navigate_up();
+                    }
+                    let selected = self.state.selected.min(entries.len().saturating_sub(1));
 
-                    if key_enter {
-                        self.execute_current();
+                    // Enter on a directory navigates into it; on a file opens it
+                    if key_enter && !entries.is_empty() {
+                        let entry = &entries[selected];
+                        if entry.is_dir {
+                            self.set_path_input(&entry.full_path);
+                        } else {
+                            self.execute_current();
+                        }
                         return;
                     }
 
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        for entry in &entries {
+                        for (i, entry) in entries.iter().enumerate() {
+                            let is_selected = i == selected;
                             let label = if entry.is_dir {
                                 egui::RichText::new(&entry.full_path)
                                     .strong()
@@ -138,11 +153,12 @@ impl eframe::App for LauncherApp {
                             } else {
                                 egui::RichText::new(&entry.full_path)
                             };
-                            if ui.selectable_label(false, label).clicked() {
-                                self.state.input = entry.full_path.clone();
-                                self.prev_input = self.state.input.clone();
-                                let new_input = self.state.input.clone();
-                                self.state.set_input(new_input);
+                            let response = ui.selectable_label(is_selected, label);
+                            if response.clicked() {
+                                self.set_path_input(&entry.full_path);
+                            }
+                            if is_selected && (key_down || key_up) {
+                                response.scroll_to_me(Some(egui::Align::Center));
                             }
                         }
                         if entries.is_empty() {
@@ -153,6 +169,12 @@ impl eframe::App for LauncherApp {
                     });
                 }
                 InputMode::Normal => {
+                    if key_down {
+                        self.state.navigate_down();
+                    }
+                    if key_up {
+                        self.state.navigate_up();
+                    }
                     let filtered = self.state.filtered_items();
                     let selected = self.state.selected;
 
@@ -165,24 +187,30 @@ impl eframe::App for LauncherApp {
                         for (i, item) in filtered.iter().enumerate() {
                             let is_selected = i == selected;
 
-                            let text = match &item.kind {
+                            let label = match &item.kind {
                                 ListItemKind::Command => {
                                     let detail = if item.display_detail.len() > 50 {
                                         format!("{}...", &item.display_detail[..47])
                                     } else {
                                         item.display_detail.clone()
                                     };
-                                    format!("{}  -  {}", item.key, detail)
+                                    let text = format!("{}  -  {}", item.key, detail);
+                                    if is_selected {
+                                        egui::RichText::new(text).strong()
+                                    } else {
+                                        egui::RichText::new(text)
+                                    }
                                 }
                                 ListItemKind::Shortcut { .. } => {
-                                    format!("[app] {}", item.key)
+                                    let text = format!("[app] {}", item.key);
+                                    let rt = egui::RichText::new(text)
+                                        .color(egui::Color32::from_rgb(100, 200, 200));
+                                    if is_selected {
+                                        rt.strong()
+                                    } else {
+                                        rt
+                                    }
                                 }
-                            };
-
-                            let label = if is_selected {
-                                egui::RichText::new(&text).strong()
-                            } else {
-                                egui::RichText::new(&text)
                             };
 
                             let response = ui.selectable_label(is_selected, label);
