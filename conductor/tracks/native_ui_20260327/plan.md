@@ -8,8 +8,8 @@
 
 ## Phase 2: Core Launcher Window
 
-- [ ] Task: Write tests for launcher data model — extract `ListItem`, `ListItemKind`, filtering logic, and `encode_url_args` into a shared module (`src/launcher/mod.rs`). Write unit tests for filtering, matching, calculator evaluation, and file path detection.
-- [ ] Task: Implement the shared launcher data model — move the business logic out of `list.rs` into the shared module. Existing CLI `list` command should import from the shared module. All existing tests must still pass.
+- [x] Task: Write tests for launcher data model — extract `ListItem`, `ListItemKind`, filtering logic, and `encode_url_args` into a shared module (`src/launcher/mod.rs`). Write unit tests for filtering, matching, calculator evaluation, and file path detection. [2ff2489]
+- [x] Task: Implement the shared launcher data model — move the business logic out of `list.rs` into the shared module. Existing CLI `list` command should import from the shared module. All existing tests must still pass. [2ff2489]
 - [ ] Task: Write tests for the launcher window state machine — test states: hidden, visible/empty, visible/filtering, visible/selected. Test transitions: show, hide, type, navigate, execute.
 - [ ] Task: Implement the launcher window — create the GUI window with text input and filtered list using the chosen framework. Wire up the shared data model for filtering and display. Keyboard navigation (up/down/enter/escape) must work.
 - [ ] Task: Conductor - User Manual Verification 'Core Launcher Window' (Protocol in workflow.md)
