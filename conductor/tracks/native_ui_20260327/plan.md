@@ -14,14 +14,14 @@
 - [x] Task: Implement the launcher window [ab9ca70] — create the GUI window with text input and filtered list using the chosen framework. Wire up the shared data model for filtering and display. Keyboard navigation (up/down/enter/escape) must work.
 - [x] Task: Conductor - User Manual Verification 'Core Launcher Window' (Protocol in workflow.md) [edf3dff]
 
-## Phase 3: Feature Parity
+## Phase 3: Feature Parity [checkpoint: pending]
 
-- [ ] Task: Write tests for calculator mode in the windowed launcher — input starting with `=` evaluates and displays the result inline.
-- [ ] Task: Implement calculator mode in the windowed launcher — integrate `meval` evaluation into the window's input handling.
-- [ ] Task: Write tests for file path mode in the windowed launcher — file path detection, directory listing, auto-expansion.
-- [ ] Task: Implement file path mode in the windowed launcher — filesystem browsing with tab-completion and auto-expand for single directory matches.
-- [ ] Task: Implement action execution from the windowed launcher — on Enter, dispatch to `browser::open_url_in_browser`, `browser::open_command_with_args`, `browser::launch_shortcut`, or file path opening, reusing the existing `src/utils/browser.rs` module.
-- [ ] Task: Conductor - User Manual Verification 'Feature Parity' (Protocol in workflow.md)
+- [x] Task: Write tests for calculator mode in the windowed launcher — input starting with `=` evaluates and displays the result inline. [a67d1a5]
+- [x] Task: Implement calculator mode in the windowed launcher — integrate `meval` evaluation into the window's input handling. [a67d1a5]
+- [x] Task: Write tests for file path mode in the windowed launcher — file path detection, directory listing, auto-expansion. [a67d1a5]
+- [x] Task: Implement file path mode in the windowed launcher — filesystem browsing with tab-completion and auto-expand for single directory matches. [a67d1a5]
+- [x] Task: Implement action execution from the windowed launcher — on Enter, dispatch to `browser::open_url_in_browser`, `browser::open_command_with_args`, `browser::launch_shortcut`, or file path opening, reusing the existing `src/utils/browser.rs` module. [a67d1a5]
+- [x] Task: Conductor - User Manual Verification 'Feature Parity' (Protocol in workflow.md)
 
 ## Phase 4: Hotkey & System Tray Integration
 
