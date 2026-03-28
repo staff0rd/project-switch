@@ -5,7 +5,6 @@
 
 use crate::launcher::{filter_items, ListItem};
 
-#[allow(dead_code)]
 /// Whether the launcher window is visible.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Visibility {
@@ -14,7 +13,6 @@ pub enum Visibility {
 }
 
 /// State machine for the launcher window.
-#[allow(dead_code)]
 pub struct WindowState {
     pub input: String,
     pub selected: usize,
@@ -23,7 +21,6 @@ pub struct WindowState {
     filtered_count: usize,
 }
 
-#[allow(dead_code)]
 impl WindowState {
     pub fn new(items: Vec<ListItem>) -> Self {
         let count = items.len();
@@ -49,6 +46,7 @@ impl WindowState {
         self.visibility = Visibility::Hidden;
     }
 
+    #[allow(dead_code)]
     /// Toggle visibility.
     pub fn toggle(&mut self) {
         match self.visibility {
@@ -81,11 +79,13 @@ impl WindowState {
         filter_items(&self.items, &self.input)
     }
 
+    #[allow(dead_code)]
     /// Get the number of filtered items.
     pub fn filtered_count(&self) -> usize {
         self.filtered_count
     }
 
+    #[allow(dead_code)]
     /// Replace the items list (e.g., when config changes).
     pub fn set_items(&mut self, items: Vec<ListItem>) {
         self.items = items;

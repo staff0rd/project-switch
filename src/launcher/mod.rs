@@ -95,12 +95,24 @@ pub fn eval_calculator(expr: &str) -> Result<String, String> {
 }
 
 /// Filter a list of items by query string, returning matching items in order.
+/// When the query contains a space (i.e. keyword + args), use exact key match
+/// so that "g some text" only matches a "g" key, not everything containing "g".
 pub fn filter_items<'a>(items: &'a [ListItem], query: &str) -> Vec<&'a ListItem> {
     if query.is_empty() {
         items.iter().collect()
     } else {
         let keyword = query.split_whitespace().next().unwrap_or(query);
-        items.iter().filter(|item| item.matches(keyword)).collect()
+        let has_args = query.contains(' ');
+        items
+            .iter()
+            .filter(|item| {
+                if has_args {
+                    item.key.to_lowercase() == keyword.to_lowercase()
+                } else {
+                    item.matches(keyword)
+                }
+            })
+            .collect()
     }
 }
 
@@ -343,6 +355,20 @@ mod tests {
         let filtered = filter_items(&items, "github staff0rd/repo");
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].key, "github");
+    }
+
+    #[test]
+    fn filter_items_with_args_exact_match_when_space() {
+        // "g some text" should only match an item with key "g", not everything containing "g"
+        let mut items = sample_items();
+        items.push(ListItem {
+            key: "g".to_string(),
+            display_detail: "https://google.com/search?q=".to_string(),
+            kind: ListItemKind::Command,
+        });
+        let filtered = filter_items(&items, "g some text");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key, "g");
     }
 
     // --- resolve_item ---

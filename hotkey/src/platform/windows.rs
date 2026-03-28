@@ -81,14 +81,13 @@ pub fn launch_project_switch(project_switch: &Path) {
         .creation_flags(CREATE_NO_WINDOW)
         .status();
 
-    // Wrap in "cmd /c ... & exit /b 0" so the terminal tab closes
-    // even when taskkill force-kills project-switch (exit code 1).
-    let cmd_line = format!("{} list & exit /b 0", project_switch.to_string_lossy());
-    match Command::new("wt.exe")
-        .args(["--", "cmd", "/c", &cmd_line])
+    // Launch the windowed GUI launcher directly
+    match Command::new(project_switch)
+        .args(["list", "--gui"])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
         Ok(_) => {}
-        Err(e) => eprintln!("Failed to launch wt.exe: {e}"),
+        Err(e) => eprintln!("Failed to launch project-switch: {e}"),
     }
 }

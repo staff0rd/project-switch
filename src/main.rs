@@ -38,6 +38,9 @@ enum Commands {
         /// Print the full command and args before executing
         #[arg(long)]
         debug: bool,
+        /// Launch the windowed GUI launcher instead of the terminal UI
+        #[arg(long)]
+        gui: bool,
     },
 }
 
@@ -50,7 +53,13 @@ fn main() {
         Commands::Current => commands::current::execute(),
         #[allow(deprecated)]
         Commands::Open { key } => commands::open::execute(&key),
-        Commands::List { debug } => commands::list::execute(debug),
+        Commands::List { debug, gui } => {
+            if gui {
+                commands::list::execute_gui()
+            } else {
+                commands::list::execute(debug)
+            }
+        }
     };
 
     if let Err(e) = result {

@@ -198,34 +198,24 @@ impl Autocomplete for ListAutocomplete {
     }
 }
 
-pub fn execute(debug: bool) -> Result<()> {
-    let config_manager = ConfigManager::new()?;
-
+fn load_items(
+    config_manager: &ConfigManager,
+) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
     let resolved = config_manager.resolve_current_project();
-    let display_name = resolved
-        .as_ref()
-        .map(|(name, _)| name.as_str())
-        .unwrap_or("global");
 
-    // Collect commands from both project and global
     let mut all_commands = Vec::new();
-
     if let Some((_, project)) = &resolved {
         if let Some(project_commands) = &project.commands {
             all_commands.extend(project_commands.iter().cloned());
         }
     }
-
     if let Some(global_commands) = config_manager.get_global_commands() {
         all_commands.extend(global_commands.iter().cloned());
     }
+    all_commands.sort_by(|a, b| a.key.cmp(&b.key));
+    all_commands.dedup_by(|a, b| a.key == b.key);
 
-    let mut sorted_commands = all_commands;
-    sorted_commands.sort_by(|a, b| a.key.cmp(&b.key));
-    sorted_commands.dedup_by(|a, b| a.key == b.key);
-
-    // Build list items from commands
-    let mut all_items: Vec<ListItem> = sorted_commands
+    let mut all_items: Vec<ListItem> = all_commands
         .iter()
         .map(|cmd| ListItem {
             key: cmd.key.clone(),
@@ -238,13 +228,11 @@ pub fn execute(debug: bool) -> Result<()> {
         })
         .collect();
 
-    // Collect shortcuts if enabled
     let shortcuts_config = config_manager.get_shortcuts_config();
     if shortcuts_config.enabled {
         let extra_paths = shortcuts_config.extra_paths.unwrap_or_default();
         let exclude = shortcuts_config.exclude.unwrap_or_default();
         let shortcut_entries = shortcuts::collect_shortcuts(&extra_paths, &exclude);
-
         for entry in shortcut_entries {
             all_items.push(ListItem {
                 key: entry.name,
@@ -255,6 +243,65 @@ pub fn execute(debug: bool) -> Result<()> {
             });
         }
     }
+
+    (all_commands, all_items)
+}
+
+pub fn execute_gui() -> Result<()> {
+    let config_manager = ConfigManager::new()?;
+    let display_name = config_manager
+        .resolve_current_project()
+        .map(|(name, _)| name.clone())
+        .unwrap_or_else(|| "global".to_string());
+
+    let (_, all_items) = load_items(&config_manager);
+
+    let mut state = crate::ui::WindowState::new(all_items);
+    state.show();
+
+    let options = eframe::NativeOptions {
+        centered: true,
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([700.0, 500.0])
+            .with_decorations(false)
+            .with_always_on_top(),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "project-switch",
+        options,
+        Box::new(move |cc| {
+            let mut style = (*cc.egui_ctx.style()).clone();
+            style.text_styles.insert(
+                eframe::egui::TextStyle::Body,
+                eframe::egui::FontId::proportional(18.0),
+            );
+            style.text_styles.insert(
+                eframe::egui::TextStyle::Button,
+                eframe::egui::FontId::proportional(18.0),
+            );
+            style.text_styles.insert(
+                eframe::egui::TextStyle::Monospace,
+                eframe::egui::FontId::monospace(16.0),
+            );
+            cc.egui_ctx.set_style(style);
+            Ok(Box::new(crate::ui::LauncherApp::new(state, display_name)))
+        }),
+    )
+    .map_err(|e| anyhow::anyhow!("GUI error: {}", e))
+}
+
+pub fn execute(debug: bool) -> Result<()> {
+    let config_manager = ConfigManager::new()?;
+
+    let resolved = config_manager.resolve_current_project();
+    let display_name = resolved
+        .as_ref()
+        .map(|(name, _)| name.as_str())
+        .unwrap_or("global");
+
+    let (sorted_commands, all_items) = load_items(&config_manager);
 
     if all_items.is_empty() {
         println!(

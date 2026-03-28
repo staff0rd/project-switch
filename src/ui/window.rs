@@ -4,18 +4,18 @@ use crate::launcher::ListItemKind;
 use crate::ui::state::{Visibility, WindowState};
 use eframe::egui;
 
-#[allow(dead_code)]
 pub struct LauncherApp {
     state: WindowState,
     project_name: String,
+    prev_input: String,
 }
 
-#[allow(dead_code)]
 impl LauncherApp {
     pub fn new(state: WindowState, project_name: String) -> Self {
         Self {
             state,
             project_name,
+            prev_input: String::new(),
         }
     }
 }
@@ -30,14 +30,19 @@ impl eframe::App for LauncherApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Project context label
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(&self.project_name)
-                        .small()
-                        .color(egui::Color32::GRAY),
-                );
-            });
+            // Draggable title bar area
+            let (title_rect, response) =
+                ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), egui::Sense::drag());
+            if response.dragged() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+            ui.painter().text(
+                title_rect.left_center() + egui::vec2(4.0, 0.0),
+                egui::Align2::LEFT_CENTER,
+                &self.project_name,
+                egui::FontId::proportional(16.0),
+                egui::Color32::GRAY,
+            );
 
             // Text input
             let input_response = ui.add(
@@ -46,13 +51,17 @@ impl eframe::App for LauncherApp {
                     .desired_width(f32::INFINITY),
             );
 
-            // Auto-focus input on first frame
-            if input_response.gained_focus() || self.state.input.is_empty() {
+            // Auto-focus input on first frame only
+            if !input_response.has_focus() {
                 input_response.request_focus();
             }
 
-            // Handle input change (must detect manually since we mutate input directly)
-            let prev_input = self.state.input.clone();
+            // Detect input changes (egui mutates input directly via TextEdit)
+            if self.state.input != self.prev_input {
+                self.prev_input = self.state.input.clone();
+                let new_input = self.state.input.clone();
+                self.state.set_input(new_input);
+            }
 
             // Keyboard navigation
             let key_down = ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
@@ -71,19 +80,12 @@ impl eframe::App for LauncherApp {
                 return;
             }
 
-            // Update filtered count if input changed
-            if self.state.input != prev_input {
-                let new_input = self.state.input.clone();
-                self.state.set_input(new_input);
-            }
-
             // Get filtered items for display
             let filtered = self.state.filtered_items();
             let selected = self.state.selected;
 
             if key_enter && !filtered.is_empty() && selected < filtered.len() {
                 // TODO: Phase 3 will implement action execution
-                // For now, just hide the window
                 self.state.hide();
                 return;
             }
@@ -102,7 +104,7 @@ impl eframe::App for LauncherApp {
                             } else {
                                 item.display_detail.clone()
                             };
-                            format!("{} → {}", item.key, detail)
+                            format!("{}  -  {}", item.key, detail)
                         }
                         ListItemKind::Shortcut { .. } => {
                             format!("[app] {}", item.key)
@@ -117,8 +119,8 @@ impl eframe::App for LauncherApp {
 
                     let response = ui.selectable_label(is_selected, label);
 
-                    // Scroll selected item into view
-                    if is_selected {
+                    // Scroll selected item into view only when navigating
+                    if is_selected && (key_down || key_up) {
                         response.scroll_to_me(Some(egui::Align::Center));
                     }
                 }

@@ -3,7 +3,5 @@
 mod state;
 mod window;
 
-#[allow(unused_imports)]
-pub use state::{Visibility, WindowState};
-#[allow(unused_imports)]
+pub use state::WindowState;
 pub use window::LauncherApp;
