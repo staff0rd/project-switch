@@ -122,19 +122,8 @@ pub fn get_path_entries(input: &str) -> Vec<PathEntry> {
     let mut result = Vec::new();
     let mut dir_part = initial_dir;
     let mut filter = initial_filter;
-    let mut show_self = true;
 
     for _ in 0..10 {
-        // Show the directory itself (without trailing \) so it can be opened
-        if filter.is_empty() && show_self {
-            let self_path = dir_part.trim_end_matches('\\').to_string();
-            if !self_path.is_empty() {
-                result.push(PathEntry {
-                    full_path: self_path,
-                    is_dir: true,
-                });
-            }
-        }
         let entries = match std::fs::read_dir(&dir_part) {
             Ok(e) => e,
             Err(_) => break,
@@ -166,6 +155,13 @@ pub fn get_path_entries(input: &str) -> Vec<PathEntry> {
         files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
 
         for (full, _) in &dirs {
+            // Without trailing \ = open the directory
+            let open_path = full.trim_end_matches('\\').to_string();
+            result.push(PathEntry {
+                full_path: open_path,
+                is_dir: true,
+            });
+            // With trailing \ = browse into it
             result.push(PathEntry {
                 full_path: full.clone(),
                 is_dir: true,
@@ -176,7 +172,6 @@ pub fn get_path_entries(input: &str) -> Vec<PathEntry> {
         if dirs.len() == 1 && files.is_empty() {
             dir_part = dirs[0].0.clone();
             filter = String::new();
-            show_self = false;
             continue;
         }
 
