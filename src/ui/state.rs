@@ -13,8 +13,8 @@ pub enum Visibility {
     Visible,
 }
 
-#[allow(dead_code)]
 /// State machine for the launcher window.
+#[allow(dead_code)]
 pub struct WindowState {
     pub input: String,
     pub selected: usize,
