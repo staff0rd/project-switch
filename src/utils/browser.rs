@@ -16,30 +16,27 @@ pub fn open_command_with_args(
 }
 
 fn run_terminal_command(command: &str, args: Option<&str>, debug: bool) -> Result<()> {
-    let cmd_result = if cfg!(target_os = "windows") {
-        let mut cmd_args = vec!["-Command".to_string(), command.to_string()];
-        if let Some(args_str) = args {
-            if !args_str.is_empty() {
-                cmd_args.push(args_str.to_string());
-            }
+    let mut full_command = command.to_string();
+    if let Some(args_str) = args {
+        if !args_str.is_empty() {
+            full_command.push(' ');
+            full_command.push_str(args_str);
         }
+    }
+
+    let cmd_result = if cfg!(target_os = "windows") {
         if debug {
             println!(
                 "{}",
-                format!("[debug] powershell {}", cmd_args.join(" ")).dimmed()
+                format!("[debug] wt -- cmd /c {}", full_command).dimmed()
             );
         }
-        let mut cmd = Command::new("powershell");
-        cmd.args(&cmd_args);
-        cmd.status()
+        // Launch in Windows Terminal so interactive commands have a console
+        let cmd_line = format!("{} & exit /b 0", full_command);
+        Command::new("wt.exe")
+            .args(["--", "cmd", "/c", &cmd_line])
+            .status()
     } else {
-        let mut full_command = command.to_string();
-        if let Some(args_str) = args {
-            if !args_str.is_empty() {
-                full_command.push(' ');
-                full_command.push_str(args_str);
-            }
-        }
         if debug {
             println!("{}", format!("[debug] sh -c {}", full_command).dimmed());
         }
