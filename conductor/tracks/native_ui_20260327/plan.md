@@ -12,7 +12,7 @@
 - [x] Task: Implement the shared launcher data model — move the business logic out of `list.rs` into the shared module. Existing CLI `list` command should import from the shared module. All existing tests must still pass. [2ff2489]
 - [x] Task: Write tests for the launcher window state machine [d064449] — test states: hidden, visible/empty, visible/filtering, visible/selected. Test transitions: show, hide, type, navigate, execute.
 - [x] Task: Implement the launcher window [ab9ca70] — create the GUI window with text input and filtered list using the chosen framework. Wire up the shared data model for filtering and display. Keyboard navigation (up/down/enter/escape) must work.
-- [ ] Task: Conductor - User Manual Verification 'Core Launcher Window' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Core Launcher Window' (Protocol in workflow.md)
 
 ## Phase 3: Feature Parity
 
