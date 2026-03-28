@@ -1,4 +1,8 @@
 use crate::config::ConfigManager;
+use crate::launcher::{
+    encode_url_args, eval_calculator, filter_items, is_file_path, merge_args, resolve_item,
+    strip_ansi_codes, ListItem, ListItemKind,
+};
 use crate::utils::browser;
 use crate::utils::shortcuts;
 use crate::utils::url::is_url;
@@ -6,61 +10,7 @@ use anyhow::Result;
 use colored::*;
 use inquire::Autocomplete;
 
-fn encode_url_args(url: &str, user_args: &str) -> String {
-    let encoded: String = user_args
-        .split('/')
-        .map(|segment| urlencoding::encode(segment).into_owned())
-        .collect::<Vec<_>>()
-        .join("/");
-    format!("{}{}", url, encoded)
-}
-
-fn merge_args(cmd_args: Option<&str>, user_args: Option<&str>) -> Option<String> {
-    match (cmd_args, user_args) {
-        (Some(c), Some(u)) => Some(format!("{} {}", c, u)),
-        (Some(c), None) => Some(c.to_string()),
-        (None, Some(u)) => Some(u.to_string()),
-        (None, None) => None,
-    }
-}
-
-fn strip_ansi_codes(s: &str) -> String {
-    let mut result = String::new();
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            // Skip the escape sequence
-            if chars.next() == Some('[') {
-                // Skip until we find a letter (end of escape sequence)
-                for ch in chars.by_ref() {
-                    if ch.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
-}
-
 const PATH_PREFIX: &str = "[path] ";
-
-fn is_file_path(input: &str) -> bool {
-    let s = input.trim();
-    // Drive letter pattern: c: or D:\ etc.
-    if s.len() >= 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':' {
-        return true;
-    }
-    // UNC paths: \\server\...
-    if s.starts_with("\\\\") {
-        return true;
-    }
-    false
-}
 
 fn get_file_suggestions(input: &str) -> Vec<String> {
     // Normalize forward slashes to backslashes
@@ -146,35 +96,20 @@ fn get_file_suggestions(input: &str) -> Vec<String> {
     result
 }
 
-#[derive(Clone)]
-enum ListItemKind {
-    Command,
-    Shortcut { path: String },
-}
-
-#[derive(Clone)]
-struct ListItem {
-    key: String,
-    display_detail: String,
-    kind: ListItemKind,
-}
-
 const APP_PREFIX: &str = "[app] ";
 
-impl ListItem {
-    fn format_suggestion(&self) -> String {
-        match &self.kind {
-            ListItemKind::Command => {
-                let truncated = if self.display_detail.len() > 60 {
-                    format!("{}...", &self.display_detail[..57])
-                } else {
-                    self.display_detail.clone()
-                };
-                format!("{} → {}", self.key.green().bold(), truncated.bright_blue())
-            }
-            ListItemKind::Shortcut { .. } => {
-                format!("{}{}", APP_PREFIX.cyan(), self.key.yellow())
-            }
+fn format_suggestion(item: &ListItem) -> String {
+    match &item.kind {
+        ListItemKind::Command => {
+            let truncated = if item.display_detail.len() > 60 {
+                format!("{}...", &item.display_detail[..57])
+            } else {
+                item.display_detail.clone()
+            };
+            format!("{} → {}", item.key.green().bold(), truncated.bright_blue())
+        }
+        ListItemKind::Shortcut { .. } => {
+            format!("{}{}", APP_PREFIX.cyan(), item.key.yellow())
         }
     }
 }
@@ -186,10 +121,9 @@ struct ListAutocomplete {
 
 impl ListAutocomplete {
     fn matching_suggestions(&self, keyword: &str) -> Vec<String> {
-        self.items
-            .iter()
-            .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
-            .map(|item| item.format_suggestion())
+        filter_items(&self.items, keyword)
+            .into_iter()
+            .map(format_suggestion)
             .collect()
     }
 }
@@ -198,20 +132,14 @@ impl Autocomplete for ListAutocomplete {
     fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, inquire::CustomUserError> {
         // Calculator mode: show result as a suggestion
         if let Some(expr) = input.strip_prefix('=') {
-            let expr = expr.trim();
-            if expr.is_empty() {
+            if expr.trim().is_empty() {
                 return Ok(vec![format!(
                     "{}",
                     "Type a math expression (e.g. =5+1)".dimmed()
                 )]);
             }
-            return Ok(match meval::eval_str(expr) {
-                Ok(result) => {
-                    let display = if result.fract() == 0.0 {
-                        format!("{}", result as i64)
-                    } else {
-                        format!("{}", result)
-                    };
+            return Ok(match eval_calculator(expr) {
+                Ok(display) => {
                     vec![format!("{}", format!("= {}", display).bold().green())]
                 }
                 Err(_) => vec![format!("{}", "Invalid expression".red())],
@@ -233,7 +161,7 @@ impl Autocomplete for ListAutocomplete {
                 .find(|item| item.key.to_lowercase() == keyword.to_lowercase());
 
             if let Some(matched) = exact_match {
-                vec![matched.format_suggestion()]
+                vec![format_suggestion(matched)]
             } else {
                 self.matching_suggestions(keyword)
             }
@@ -357,14 +285,8 @@ pub fn execute(debug: bool) -> Result<()> {
 
     // Calculator mode: input starting with '=' evaluates a math expression
     if let Some(expr) = user_input.strip_prefix('=') {
-        let expr = expr.trim();
-        match meval::eval_str(expr) {
-            Ok(result) => {
-                let display = if result.fract() == 0.0 {
-                    format!("{}", result as i64)
-                } else {
-                    format!("{}", result)
-                };
+        match eval_calculator(expr) {
+            Ok(display) => {
                 println!("{}", format!("= {}", display).bold().green());
                 return Ok(());
             }
@@ -397,47 +319,13 @@ pub fn execute(debug: bool) -> Result<()> {
         }
     }
 
-    // Parse keyword and arguments
-    let (keyword, args) = if let Some(space_pos) = cleaned_input.find(' ') {
-        let kw = &cleaned_input[..space_pos];
-        let rest = cleaned_input[space_pos + 1..].trim();
-        (
-            kw.to_string(),
-            if rest.is_empty() {
-                None
-            } else {
-                Some(rest.to_string())
-            },
-        )
-    } else {
-        (cleaned_input.clone(), None)
-    };
+    let keyword = cleaned_input
+        .split_whitespace()
+        .next()
+        .unwrap_or(&cleaned_input);
 
-    // Try exact match on full input first (handles multi-word keys like shortcuts)
-    let (matched_item, args) = if let Some(item) = all_items
-        .iter()
-        .find(|item| item.key.to_lowercase() == cleaned_input.to_lowercase())
-    {
-        (Some(item), None)
-    } else {
-        // Try to find a matching item by keyword
-        let matched = all_items
-            .iter()
-            .find(|item| item.key.to_lowercase() == keyword.to_lowercase())
-            .or_else(|| {
-                // Partial match fallback
-                let matches: Vec<_> = all_items
-                    .iter()
-                    .filter(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
-                    .collect();
-                matches.into_iter().next()
-            });
-
-        (matched, args)
-    };
-
-    match matched_item {
-        Some(item) => match &item.kind {
+    match resolve_item(&all_items, &cleaned_input) {
+        Some((item, args)) => match &item.kind {
             ListItemKind::Shortcut { path } => {
                 browser::launch_shortcut(path, debug)?;
             }
@@ -512,7 +400,7 @@ pub fn execute(debug: bool) -> Result<()> {
         },
         None => {
             // No matches — check if the input looks like a URL
-            if is_url(&keyword) {
+            if is_url(keyword) {
                 let url = if keyword.starts_with("http://") || keyword.starts_with("https://") {
                     keyword.to_string()
                 } else {
@@ -529,27 +417,4 @@ pub fn execute(debug: bool) -> Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn encode_url_args_preserves_slashes() {
-        // gh config: url: https://github.com/ with user_args "staff0rd/assist"
-        // should produce https://github.com/staff0rd/assist, not https://github.com/staff0rd%2Fassist
-        assert_eq!(
-            encode_url_args("https://github.com/", "staff0rd/assist"),
-            "https://github.com/staff0rd/assist"
-        );
-    }
-
-    #[test]
-    fn encode_url_args_still_encodes_spaces() {
-        assert_eq!(
-            encode_url_args("https://www.google.com/search?q=", "hello world"),
-            "https://www.google.com/search?q=hello%20world"
-        );
-    }
 }
