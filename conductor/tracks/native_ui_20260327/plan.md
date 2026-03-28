@@ -1,10 +1,10 @@
 # Plan: Migrate Launcher from CLI to Native Windowed UI
 
-## Phase 1: Research & Foundation
+## Phase 1: Research & Foundation [checkpoint: a333332]
 
 - [x] Task: Evaluate GUI framework (iced vs egui/eframe) — build a minimal prototype with text input + scrollable list for both, compare startup time, keystroke latency, binary size, and cross-platform support. Document decision in tech-stack.md. [733ac4c]
 - [x] Task: Define the crate structure for the merged binary — decide whether to merge hotkey + launcher into a single crate or use a workspace with shared library crate. Update Cargo.toml(s) accordingly. [0075dea]
-- [~] Task: Conductor - User Manual Verification 'Research & Foundation' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Research & Foundation' (Protocol in workflow.md) [a333332]
 
 ## Phase 2: Core Launcher Window
 
