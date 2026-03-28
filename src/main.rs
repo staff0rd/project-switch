@@ -1,5 +1,8 @@
 mod commands;
 mod config;
+mod hotkey;
+mod launcher;
+mod ui;
 mod utils;
 
 use clap::{Parser, Subcommand};
