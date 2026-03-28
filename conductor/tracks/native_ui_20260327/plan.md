@@ -25,7 +25,7 @@
 
 ## Phase 4: Hotkey & System Tray Integration
 
-- [ ] Task: Write tests for hotkey toggle behavior — hotkey shows window when hidden, hides when visible. Verify focus is set and input is cleared on show.
+- [~] Task: Write tests for hotkey toggle behavior — hotkey shows window when hidden, hides when visible. Verify focus is set and input is cleared on show.
 - [ ] Task: Merge the hotkey service into the launcher binary — integrate `global-hotkey` registration and the `tray-icon`/`muda` system tray into the same event loop as the GUI window. Hotkey press shows/hides the window instead of spawning a terminal.
 - [ ] Task: Implement system tray context menu — retain Open, Shortcuts toggle, and Exit menu items. Wire Open to show the launcher window.
 - [ ] Task: Platform-specific adjustments — ensure Alt+Space (Windows) and Cmd+Space (macOS) work correctly. Handle platform-specific window focus behavior (e.g., macOS activation policy).

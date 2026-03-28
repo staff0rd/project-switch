@@ -16,7 +16,11 @@
       "Bash(assist run build)",
       "Bash(wc:*)",
       "Bash(ls:*)",
-      "Bash(pwsh build.ps1:*)"
+      "Bash(pwsh build.ps1:*)",
+      "Bash(cargo test:*)",
+      "Bash(xargs grep:*)",
+      "Bash(node -e \":*)",
+      "Bash(git notes:*)"
     ],
     "deny": []
   }
