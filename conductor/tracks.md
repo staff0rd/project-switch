@@ -4,6 +4,6 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-## [ ] Track: Migrate launcher from CLI to native windowed UI
+## [~] Track: Migrate launcher from CLI to native windowed UI
 
 _Link: [./conductor/tracks/native_ui_20260327/](./conductor/tracks/native_ui_20260327/)_

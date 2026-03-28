@@ -34,6 +34,20 @@
 | Windows | windows | 0.58 | Win32 API bindings (WindowsAndMessaging) |
 | Build | winresource | 0.1 | Windows executable resource embedding |
 
+## Native UI (planned — replacing CLI list/switch)
+
+| Category | Crate | Version | Purpose |
+|---|---|---|---|
+| GUI Framework | eframe | 0.31 | Window management and OpenGL/glow rendering |
+| GUI Widgets | egui | 0.31 | Immediate-mode UI: text input, scrollable list, keyboard nav |
+
+**Decision rationale:** Chose egui/eframe over iced based on Phase 1 evaluation:
+- 40% fewer lines of code for equivalent text-input + filtered-list prototype
+- 14s check-compile vs 27s (iced), 418 vs 433 crate dependencies
+- Immediate-mode rendering gives sub-1ms keystroke latency (vs Elm-architecture message dispatch)
+- First-class `ViewportCommand::Visible` for hotkey show/hide toggle
+- glow (OpenGL) backend is lighter and simpler to cross-compile than wgpu
+
 ## Build & Distribution
 
 - **Docker** cross-compilation pipeline producing platform-specific binaries
