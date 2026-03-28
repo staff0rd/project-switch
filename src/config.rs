@@ -73,6 +73,11 @@ pub struct Config {
     pub projects: Vec<Project>,
 }
 
+/// Expand tilde in an include path to the home directory.
+pub fn expand_include_path(path: &str) -> PathBuf {
+    expand_tilde(path)
+}
+
 fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
         if let Some(home) = dirs::home_dir() {
@@ -401,5 +406,9 @@ impl ConfigManager {
 
     pub fn get_shortcuts_config(&self) -> ShortcutsConfig {
         self.config.shortcuts.clone().unwrap_or_default()
+    }
+
+    pub fn get_include_path(&self) -> Option<&str> {
+        self.config.include.as_deref()
     }
 }

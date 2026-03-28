@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 #[command(version = "1.0.0")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -48,12 +48,14 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Switch => commands::switch::execute(),
-        Commands::Add { name } => commands::add::execute(name),
-        Commands::Current => commands::current::execute(),
+        // No subcommand: start the daemon (hotkey + tray + GUI)
+        None => hotkey::daemon::run(),
+        Some(Commands::Switch) => commands::switch::execute(),
+        Some(Commands::Add { name }) => commands::add::execute(name),
+        Some(Commands::Current) => commands::current::execute(),
         #[allow(deprecated)]
-        Commands::Open { key } => commands::open::execute(&key),
-        Commands::List { debug, gui } => {
+        Some(Commands::Open { key }) => commands::open::execute(&key),
+        Some(Commands::List { debug, gui }) => {
             if gui {
                 commands::list::execute_gui()
             } else {

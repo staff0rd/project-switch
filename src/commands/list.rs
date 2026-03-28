@@ -128,7 +128,7 @@ impl Autocomplete for ListAutocomplete {
     }
 }
 
-fn load_items(
+pub fn load_items(
     config_manager: &ConfigManager,
 ) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
     let resolved = config_manager.resolve_current_project();
@@ -300,33 +300,11 @@ pub fn execute_gui() -> Result<()> {
     let mut state = crate::ui::WindowState::new(all_items);
     state.show();
 
-    let options = eframe::NativeOptions {
-        centered: true,
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([700.0, 500.0])
-            .with_decorations(false)
-            .with_always_on_top(),
-        ..Default::default()
-    };
-
     eframe::run_native(
         "project-switch",
-        options,
+        crate::ui::launcher_options(true),
         Box::new(move |cc| {
-            let mut style = (*cc.egui_ctx.style()).clone();
-            style.text_styles.insert(
-                eframe::egui::TextStyle::Body,
-                eframe::egui::FontId::proportional(18.0),
-            );
-            style.text_styles.insert(
-                eframe::egui::TextStyle::Button,
-                eframe::egui::FontId::proportional(18.0),
-            );
-            style.text_styles.insert(
-                eframe::egui::TextStyle::Monospace,
-                eframe::egui::FontId::monospace(16.0),
-            );
-            cc.egui_ctx.set_style(style);
+            crate::ui::apply_launcher_style(&cc.egui_ctx);
             Ok(Box::new(crate::ui::LauncherApp::new(state, display_name)))
         }),
     )
