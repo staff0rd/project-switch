@@ -18,7 +18,7 @@
       tasks:
         - task: Test on macOS that clicking away, Cmd-Tabbing, and existing Escape/Enter behaviors all work correctly
           verify: Run /verify and /build
-  currentPhase: 2
+  currentPhase: 3
   status: done
 - id: 2
   type: bug
@@ -36,4 +36,5 @@
     - When the user presses Enter with input that matches no items and is_url() returns true, the URL is opened in the default browser
     - Bare domains (e.g. staffordwilliams.com) are prefixed with https://
     - URLs already prefixed with http:// or https:// are opened as-is
-  status: todo
+  currentPhase: 1
+  status: done

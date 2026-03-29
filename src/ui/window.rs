@@ -163,6 +163,10 @@ pub fn render_launcher(
                     execute_and_hide(state);
                     return;
                 }
+                if key_enter && filtered.is_empty() && crate::utils::url::is_url(&state.input) {
+                    execute_and_hide(state);
+                    return;
+                }
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (i, item) in filtered.iter().enumerate() {
