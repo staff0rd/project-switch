@@ -7,18 +7,11 @@ Write-Host "Stopping any running project-switch.exe processes..."
 Get-Process -Name "project-switch", "project-switch-hotkey" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Write-Host "Processes stopped."
 
-# Delete the bin folder if it exists
-Write-Host "Removing bin folder..."
+# Clean files inside bin but keep directories (another profile may hold a directory handle)
+Write-Host "Cleaning bin folder..."
 if (Test-Path "bin") {
-    try {
-        Remove-Item -Path "bin" -Recurse -Force -ErrorAction Stop
-        Write-Host "bin folder removed."
-    }
-    catch {
-        Write-Error "Failed to remove bin folder. Build may be incomplete."
-        Write-Error $_.Exception.Message
-        exit 1
-    }
+    Get-ChildItem -Path "bin" -Recurse -File | Remove-Item -Force -ErrorAction SilentlyContinue
+    Write-Host "bin folder cleaned."
 }
 else {
     Write-Host "bin folder does not exist."
