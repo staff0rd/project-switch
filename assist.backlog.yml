@@ -1,0 +1,39 @@
+- id: 1
+  type: story
+  name: Close window on focus loss
+  description: When the project-switch GUI window loses focus (user clicks away or switches to another app), automatically hide the window. This matches the expected behavior of launcher-style UIs like Spotlight/Alfred.
+  acceptanceCriteria:
+    - Window hides when user clicks on another application (both Windows and macOS)
+    - Window hides when user Alt-Tabs / Cmd-Tabs away
+    - Existing close behaviors still work (Escape key, selecting an item)
+    - Daemon mode and standalone --gui mode both support focus-loss hiding
+  plan:
+    - name: Focus-loss detection
+      tasks:
+        - task: Add viewport().focused check in DaemonApp::update to call state.hide() when window loses focus
+          verify: Build succeeds
+        - task: Add viewport().focused check in LauncherApp::update to call state.hide() when window loses focus
+          verify: Build succeeds
+    - name: Verify
+      tasks:
+        - task: Test on macOS that clicking away, Cmd-Tabbing, and existing Escape/Enter behaviors all work correctly
+          verify: Run /verify and /build
+  currentPhase: 2
+  status: done
+- id: 2
+  type: bug
+  name: UI window does not open URLs in browser when input has no match
+  description: |-
+    **Repro:**
+    1. Open the project-switch UI window (e.g. via hotkey)
+    2. Type a URL such as `staffordwilliams.com`
+    3. Press Enter when no items match
+
+    **Expected:** The URL is detected, prefixed with `https://` if needed, and opened in the default browser.
+
+    **Actual:** Nothing happens. The URL detection logic in `execute_action()` is not reached from the UI window code path.
+  acceptanceCriteria:
+    - When the user presses Enter with input that matches no items and is_url() returns true, the URL is opened in the default browser
+    - Bare domains (e.g. staffordwilliams.com) are prefixed with https://
+    - URLs already prefixed with http:// or https:// are opened as-is
+  status: todo

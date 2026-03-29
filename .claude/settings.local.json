@@ -20,7 +20,9 @@
       "Bash(cargo test:*)",
       "Bash(xargs grep:*)",
       "Bash(node -e \":*)",
-      "Bash(git notes:*)"
+      "Bash(git notes:*)",
+      "Bash(./build.sh 2>&1)",
+      "WebFetch(domain:docs.rs)"
     ],
     "deny": []
   }
