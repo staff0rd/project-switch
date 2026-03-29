@@ -1,6 +1,15 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// Hide this app from the macOS Dock (set activation policy to Accessory).
+pub fn hide_from_dock() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+    let mtm = unsafe { MainThreadMarker::new_unchecked() };
+    NSApplication::sharedApplication(mtm)
+        .setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+}
+
 pub fn binary_name() -> &'static str {
     "project-switch"
 }

@@ -15,6 +15,11 @@ pub fn launcher_options(visible: bool) -> eframe::NativeOptions {
             .with_decorations(false)
             .with_always_on_top()
             .with_visible(visible),
+        #[cfg(target_os = "macos")]
+        event_loop_builder: Some(Box::new(|builder| {
+            use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+            builder.with_activation_policy(ActivationPolicy::Accessory);
+        })),
         ..Default::default()
     }
 }

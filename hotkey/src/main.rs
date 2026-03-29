@@ -84,6 +84,10 @@ fn main() {
 
         match event {
             Event::NewEvents(StartCause::Init) => {
+                // Hide from Dock now that tao has initialized NSApplication
+                #[cfg(target_os = "macos")]
+                platform::hide_from_dock();
+
                 // Create tray icon once the event loop is running (required on macOS)
                 let tooltip = if cfg!(target_os = "macos") {
                     "Project Switch (\u{2318}+Space)"
