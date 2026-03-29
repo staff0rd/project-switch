@@ -140,6 +140,10 @@ impl eframe::App for DaemonApp {
         // Request repaint periodically to keep polling events
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
 
+        // Hide on focus loss (focused → unfocused transition only).
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        self.state.hide_on_focus_loss(focused);
+
         // Delegate to the launcher window rendering
         if self.state.visibility == Visibility::Hidden {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));

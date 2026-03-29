@@ -226,6 +226,10 @@ impl eframe::App for LauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         use crate::ui::state::Visibility;
 
+        // Hide on focus loss (focused → unfocused transition only).
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        self.state.hide_on_focus_loss(focused);
+
         if self.state.visibility == Visibility::Hidden {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             return;

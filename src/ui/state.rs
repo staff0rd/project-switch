@@ -28,6 +28,10 @@ pub struct WindowState {
     pub input: String,
     pub selected: usize,
     pub visibility: Visibility,
+    /// Whether the window had focus on the previous frame.
+    /// Used to detect focus *loss* (focused → unfocused) without
+    /// false-triggering on the first frame before the OS grants focus.
+    pub had_focus: bool,
     items: Vec<ListItem>,
     filtered_count: usize,
 }
@@ -39,6 +43,7 @@ impl WindowState {
             input: String::new(),
             selected: 0,
             visibility: Visibility::Hidden,
+            had_focus: false,
             items,
             filtered_count: count,
         }
@@ -49,12 +54,23 @@ impl WindowState {
         self.input.clear();
         self.selected = 0;
         self.visibility = Visibility::Visible;
+        self.had_focus = false;
         self.filtered_count = self.items.len();
     }
 
     /// Hide the window.
     pub fn hide(&mut self) {
         self.visibility = Visibility::Hidden;
+    }
+
+    /// Track focus and hide on loss. Call once per frame with the current
+    /// viewport focus state. Only hides when transitioning focused → unfocused
+    /// (avoids hiding on the first frame before the OS grants focus).
+    pub fn hide_on_focus_loss(&mut self, focused: bool) {
+        if self.visibility == Visibility::Visible && self.had_focus && !focused {
+            self.hide();
+        }
+        self.had_focus = focused;
     }
 
     #[allow(dead_code)]
