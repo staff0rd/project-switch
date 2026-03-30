@@ -56,3 +56,31 @@
     - The window dismisses normally on focus loss regardless of how it was activated
   currentPhase: 1
   status: done
+- type: story
+  name: Graceful incomplete calculator expressions
+  description: Distinguish between incomplete and genuinely invalid calculator expressions. While typing an incomplete expression (e.g. =5+), show = 5+... instead of a raw parse error. Only show invalid expression for input that is truly wrong (e.g. =abc).
+  acceptanceCriteria:
+    - Typing =5+ shows = 5+... (echoed partial expression) instead of a parse error
+    - Typing =5*(3+ shows = 5*(3+... (incomplete due to unclosed paren or trailing op)
+    - Typing =abc shows invalid expression
+    - Typing =5+3 still shows = 8 as before
+    - Both the egui UI and CLI autocomplete suggestions reflect the same behavior
+  plan:
+    - name: Detect incomplete expressions
+      tasks:
+        - task: Add an is_incomplete_expr helper that returns true when input ends with an operator or has unclosed parens
+          verify: cargo test
+        - task: "Update eval_calculator (or add a wrapper) to return a three-state result: Ok(value), Incomplete(partial), or Invalid"
+          verify: cargo test
+        - task: Add unit tests for incomplete vs invalid detection
+          verify: cargo test
+    - name: Render in both UIs
+      tasks:
+        - task: Update window.rs to render incomplete state as = {expr}... in an appropriate style
+          verify: cargo test
+        - task: Update list.rs autocomplete to show the same partial echo for incomplete expressions
+          verify: cargo test
+        - task: Update the CLI submit path to show a friendlier message for incomplete expressions
+          verify: cargo test
+  id: 4
+  status: todo
