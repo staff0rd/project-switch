@@ -38,3 +38,21 @@
     - URLs already prefixed with http:// or https:// are opened as-is
   currentPhase: 1
   status: done
+- id: 3
+  type: bug
+  name: Hotkey window appears but doesn't receive focus ~50% of the time
+  description: |-
+    **Repro:**
+    1. Have another application focused (e.g. a browser or editor)
+    2. Press ALT+SPACE to trigger the hotkey
+    3. The project-switch list window appears
+
+    **Expected:** The project-switch window appears on top AND receives input focus, with the text field ready for typing.
+
+    **Actual:** ~50% of the time, the window appears on top of other windows but does not receive focus. The previously focused application retains focus. Because the window never got focus, clicking elsewhere doesn't dismiss it — you must first click the project-switch window to focus it, then click away to dismiss it.
+  acceptanceCriteria:
+    - The project-switch window reliably receives focus when launched via the hotkey
+    - The text field is focused and ready for input immediately after the window appears
+    - The window dismisses normally on focus loss regardless of how it was activated
+  currentPhase: 1
+  status: done

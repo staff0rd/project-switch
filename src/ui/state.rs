@@ -23,6 +23,10 @@ pub enum Visibility {
     Visible,
 }
 
+/// Frames to wait before allowing focus-loss hiding, giving the OS
+/// time to process our foreground/focus request.
+const FOCUS_GRACE_FRAMES: u32 = 5;
+
 /// State machine for the launcher window.
 pub struct WindowState {
     pub input: String,
@@ -32,6 +36,8 @@ pub struct WindowState {
     /// Used to detect focus *loss* (focused → unfocused) without
     /// false-triggering on the first frame before the OS grants focus.
     pub had_focus: bool,
+    /// Frames elapsed since the window became visible.
+    visible_frames: u32,
     items: Vec<ListItem>,
     filtered_count: usize,
 }
@@ -44,6 +50,7 @@ impl WindowState {
             selected: 0,
             visibility: Visibility::Hidden,
             had_focus: false,
+            visible_frames: 0,
             items,
             filtered_count: count,
         }
@@ -55,6 +62,7 @@ impl WindowState {
         self.selected = 0;
         self.visibility = Visibility::Visible;
         self.had_focus = false;
+        self.visible_frames = 0;
         self.filtered_count = self.items.len();
     }
 
@@ -67,8 +75,19 @@ impl WindowState {
     /// viewport focus state. Only hides when transitioning focused → unfocused
     /// (avoids hiding on the first frame before the OS grants focus).
     pub fn hide_on_focus_loss(&mut self, focused: bool) {
-        if self.visibility == Visibility::Visible && self.had_focus && !focused {
+        if self.visibility != Visibility::Visible {
+            return;
+        }
+        self.visible_frames = self.visible_frames.saturating_add(1);
+        // During the grace period, track focus but don't hide — the OS may
+        // still be processing our SetForegroundWindow / Focus request.
+        if self.visible_frames <= FOCUS_GRACE_FRAMES {
+            self.had_focus = focused;
+            return;
+        }
+        if self.had_focus && !focused {
             self.hide();
+            return;
         }
         self.had_focus = focused;
     }

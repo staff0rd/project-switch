@@ -75,6 +75,8 @@ pub fn kill_existing_hotkey_instances() {
 }
 
 pub fn launch_project_switch(project_switch: &Path) {
+    use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+
     // Kill any existing project-switch.exe instances first
     let _ = Command::new("taskkill")
         .args(["/IM", "project-switch.exe", "/F"])
@@ -89,7 +91,15 @@ pub fn launch_project_switch(project_switch: &Path) {
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
-        Ok(_) => {}
+        Ok(child) => {
+            // Grant the child process permission to call SetForegroundWindow.
+            // Without this, Windows silently ignores the request ~50% of the
+            // time because only the current foreground process (or one it
+            // explicitly authorises) is allowed to steal focus.
+            unsafe {
+                let _ = AllowSetForegroundWindow(child.id());
+            }
+        }
         Err(e) => eprintln!("Failed to launch project-switch: {e}"),
     }
 }

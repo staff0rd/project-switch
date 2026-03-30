@@ -214,6 +214,8 @@ pub struct LauncherApp {
     state: WindowState,
     project_name: String,
     prev_input: String,
+    /// Counts frames since creation; used to request OS focus during startup.
+    startup_frames: u32,
 }
 
 impl LauncherApp {
@@ -222,6 +224,7 @@ impl LauncherApp {
             state,
             project_name,
             prev_input: String::new(),
+            startup_frames: 0,
         }
     }
 }
@@ -239,6 +242,15 @@ impl eframe::App for LauncherApp {
             return;
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+
+        // Request OS-level window focus during the first few frames.
+        // The hotkey service grants us foreground permission via
+        // AllowSetForegroundWindow; this triggers SetForegroundWindow
+        // through eframe so the window reliably receives input focus.
+        if self.startup_frames < 10 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.startup_frames += 1;
+        }
 
         render_launcher(
             ctx,
