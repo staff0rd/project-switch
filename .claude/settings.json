@@ -18,7 +18,6 @@
       "Bash(wc:*)",
       "Bash(ls:*)",
       "PowerShell(build.ps1:*)",
-      "PowerShell(./build.ps1:*)",
       "Bash(xargs grep:*)",
       "Bash(node -e \":*)",
       "Bash(git notes:*)",
