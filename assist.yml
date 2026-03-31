@@ -71,3 +71,6 @@ run:
       - lint
       - cargo
       - test
+deny:
+  - pattern: cargo
+    message: Cargo is not available in this environment. Do you mean /test or /build?  See assist.yml
