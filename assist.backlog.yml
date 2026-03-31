@@ -90,7 +90,8 @@
       phase: 0
       timestamp: 2026-03-30T07:01:36.894Z
       type: summary
-- type: story
+- id: 5
+  type: story
   name: Recent actions on list open
   description: When the list UI opens, display the most recent actions (up to 10) instead of the full list. As soon as the user types, switch to filtering the full item list. Recent actions are persisted across sessions.
   acceptanceCriteria:
@@ -113,5 +114,18 @@
           verify: cargo build compiles without errors
         - task: Apply same recent-items logic to the terminal/inquire mode in execute()
           verify: cargo build compiles without errors
-  id: 5
+  status: todo
+- type: bug
+  name: Half-second delay between hotkey and GUI list appearing
+  description: |-
+    **Repro:**
+    1. Have the hotkey service running
+    2. Press ALT+SPACE
+
+    **Expected:** The list GUI appears instantly.
+
+    **Actual:** There is a noticeable ~500ms delay before the window appears.
+  acceptanceCriteria:
+    - The GUI list appears with no perceptible delay after pressing ALT+SPACE
+  id: 6
   status: todo
