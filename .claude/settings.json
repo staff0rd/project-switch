@@ -17,6 +17,7 @@
       "Bash(wc:*)",
       "Bash(ls:*)",
       "Bash(build.ps1:*)",
+      "Powershell(./build.ps1:*)",
       "Bash(cargo test:*)",
       "Bash(xargs grep:*)",
       "Bash(node -e \":*)",
