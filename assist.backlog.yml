@@ -123,7 +123,7 @@
         - task: Apply same recent-items logic to the terminal/inquire mode in execute()
           verify: cargo build compiles without errors
   currentPhase: 3
-  status: in-progress
+  status: done
   comments:
     - text: Added history module (src/history.rs) that reads/writes ~/.project-switch-history.yml with load() and record() functions. record() deduplicates by moving re-executed items to top and caps at 10 entries. Integrated into execute_action() so both GUI and terminal modes record history. Includes 5 unit tests covering add, dedup, cap, re-execute, and missing-file scenarios.
       phase: 0
@@ -132,6 +132,13 @@
     - text: Integrated recent history into UI. WindowState accepts recent_keys and filtered_items() returns validated recents when input is empty, full-list filtering when typing. Same logic applied to terminal/inquire ListAutocomplete. Daemon mode also loads history. Added 5 tests for recents behavior (show recents, filter full list on typing, exclude missing items, fallback when no/invalid recents).
       phase: 2
       timestamp: 2026-03-31T03:01:40.455Z
+      type: summary
+    - text: "Review: daemon mode was not refreshing recent_keys on window reopen — recents would be stale after first action. Fixed by adding set_recent_keys() to WindowState and calling it alongside set_items() in both hotkey and tray-menu handlers."
+      timestamp: 2026-03-31T07:14:07.753Z
+      type: comment
+    - text: "Recent actions on list open: history module records executed items (max 10, deduplicated, most recent first). GUI and terminal modes show recents on empty input, switch to full-list filtering on typing. Missing items excluded. Fixed daemon mode to refresh recents on each window open."
+      phase: 3
+      timestamp: 2026-03-31T07:42:05.043Z
       type: summary
 - id: 6
   type: bug
@@ -163,7 +170,8 @@
       phase: 1
       timestamp: 2026-03-31T02:40:53.809Z
       type: summary
-- type: story
+- id: 7
+  type: story
   name: Record expressions and file paths in history
   description: Calculator expressions and file paths should be recorded in the history file alongside command/shortcut keys, so they appear in the recents list when the input is empty. Selecting a recent expression re-evaluates it; selecting a recent file path opens it.
   acceptanceCriteria:
@@ -191,5 +199,4 @@
           verify: cargo test
         - task: Add unit tests for mixed recents display and selection behaviour
           verify: cargo test
-  id: 7
   status: todo

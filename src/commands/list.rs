@@ -47,10 +47,22 @@ fn format_suggestion(item: &ListItem) -> String {
 #[derive(Clone)]
 struct ListAutocomplete {
     items: Vec<ListItem>,
+    recent_keys: Vec<String>,
 }
 
 impl ListAutocomplete {
     fn matching_suggestions(&self, keyword: &str) -> Vec<String> {
+        if keyword.is_empty() && !self.recent_keys.is_empty() {
+            let recent: Vec<String> = self
+                .recent_keys
+                .iter()
+                .filter_map(|key| self.items.iter().find(|item| item.key == *key))
+                .map(format_suggestion)
+                .collect();
+            if !recent.is_empty() {
+                return recent;
+            }
+        }
         filter_items(&self.items, keyword)
             .into_iter()
             .map(format_suggestion)
@@ -216,75 +228,84 @@ pub fn execute_action(input: &str) -> Result<()> {
     let keyword = input.split_whitespace().next().unwrap_or(input);
 
     match resolve_item(&all_items, input) {
-        Some((item, args)) => match &item.kind {
-            ListItemKind::Shortcut { path } => {
-                browser::launch_shortcut(path, false)?;
-            }
-            ListItemKind::Command => {
-                let selected_command = sorted_commands
-                    .iter()
-                    .find(|cmd| cmd.key.to_lowercase() == item.key.to_lowercase())
-                    .ok_or_else(|| anyhow::anyhow!("Command '{}' not found", item.key))?;
+        Some((item, args)) => {
+            crate::history::record(&item.key).ok();
+            match &item.kind {
+                ListItemKind::Shortcut { path } => {
+                    browser::launch_shortcut(path, false)?;
+                }
+                ListItemKind::Command => {
+                    let selected_command = sorted_commands
+                        .iter()
+                        .find(|cmd| cmd.key.to_lowercase() == item.key.to_lowercase())
+                        .ok_or_else(|| anyhow::anyhow!("Command '{}' not found", item.key))?;
 
-                if let Some(ref cmd_str) = selected_command.command {
-                    let final_args = merge_args(selected_command.args.as_deref(), args.as_deref());
-                    browser::open_command_with_args(cmd_str, None, final_args.as_deref(), false)?;
-                } else {
-                    let url = selected_command.url.as_ref().ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Command '{}' has neither 'url' nor 'command' configured",
-                            selected_command.key
-                        )
-                    })?;
+                    if let Some(ref cmd_str) = selected_command.command {
+                        let final_args =
+                            merge_args(selected_command.args.as_deref(), args.as_deref());
+                        browser::open_command_with_args(
+                            cmd_str,
+                            None,
+                            final_args.as_deref(),
+                            false,
+                        )?;
+                    } else {
+                        let url = selected_command.url.as_ref().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Command '{}' has neither 'url' nor 'command' configured",
+                                selected_command.key
+                            )
+                        })?;
 
-                    let resolved_browser = selected_command
-                        .browser
-                        .as_deref()
-                        .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
-                        .or_else(|| Some(config_manager.get_default_browser()));
+                        let resolved_browser = selected_command
+                            .browser
+                            .as_deref()
+                            .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
+                            .or_else(|| Some(config_manager.get_default_browser()));
 
-                    let effective_browser;
-                    let browser_arg = match resolved_browser {
-                        Some(b) => {
-                            let b = match selected_command.args.as_deref() {
-                                Some(a) => {
-                                    effective_browser = format!("{} {}", b, a);
-                                    effective_browser.as_str()
-                                }
-                                None => b,
-                            };
-                            Some(b)
-                        }
-                        None => None,
-                    };
+                        let effective_browser;
+                        let browser_arg = match resolved_browser {
+                            Some(b) => {
+                                let b = match selected_command.args.as_deref() {
+                                    Some(a) => {
+                                        effective_browser = format!("{} {}", b, a);
+                                        effective_browser.as_str()
+                                    }
+                                    None => b,
+                                };
+                                Some(b)
+                            }
+                            None => None,
+                        };
 
-                    let final_url;
-                    let effective_url = if browser_arg.is_some() {
-                        if let Some(ref user_args) = args {
-                            final_url = encode_url_args(url, user_args);
-                            &final_url
+                        let final_url;
+                        let effective_url = if browser_arg.is_some() {
+                            if let Some(ref user_args) = args {
+                                final_url = encode_url_args(url, user_args);
+                                &final_url
+                            } else {
+                                url
+                            }
                         } else {
                             url
-                        }
-                    } else {
-                        url
-                    };
+                        };
 
-                    let final_args = if browser_arg.is_some() {
-                        None
-                    } else {
-                        merge_args(selected_command.args.as_deref(), args.as_deref())
-                    };
+                        let final_args = if browser_arg.is_some() {
+                            None
+                        } else {
+                            merge_args(selected_command.args.as_deref(), args.as_deref())
+                        };
 
-                    browser::open_command_with_args(
-                        effective_url,
-                        browser_arg,
-                        final_args.as_deref(),
-                        false,
-                    )?;
+                        browser::open_command_with_args(
+                            effective_url,
+                            browser_arg,
+                            final_args.as_deref(),
+                            false,
+                        )?;
+                    }
                 }
             }
-        },
+        }
         None => {
             if is_url(keyword) {
                 let url = if keyword.starts_with("http://") || keyword.starts_with("https://") {
@@ -329,7 +350,8 @@ pub fn execute_gui() -> Result<()> {
         None
     };
 
-    let mut state = crate::ui::WindowState::new(command_items);
+    let recent_keys = crate::history::load();
+    let mut state = crate::ui::WindowState::new(command_items, recent_keys);
     state.show();
 
     eframe::run_native(
@@ -373,8 +395,10 @@ pub fn execute(_debug: bool) -> Result<()> {
         return Ok(());
     }
 
+    let recent_keys = crate::history::load();
     let autocomplete = ListAutocomplete {
         items: all_items.clone(),
+        recent_keys,
     };
 
     let user_input = inquire::Text::new(&format!(

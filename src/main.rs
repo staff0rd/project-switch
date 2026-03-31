@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod history;
 mod hotkey;
 mod launcher;
 mod ui;

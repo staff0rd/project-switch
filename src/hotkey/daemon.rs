@@ -113,6 +113,7 @@ impl eframe::App for DaemonApp {
             if self.state.visibility == Visibility::Visible {
                 let (items, name) = load_items();
                 self.state.set_items(items);
+                self.state.set_recent_keys(crate::history::load());
                 self.project_name = name;
             }
         }
@@ -124,6 +125,7 @@ impl eframe::App for DaemonApp {
                 self.state.show();
                 let (items, name) = load_items();
                 self.state.set_items(items);
+                self.state.set_recent_keys(crate::history::load());
                 self.project_name = name;
             } else if event.id() == self.menu_ids.exit.id() {
                 std::process::exit(0);
@@ -179,7 +181,8 @@ pub fn run() -> Result<()> {
     #[cfg(any(windows, target_os = "macos"))]
     let (tray, menu_ids) = create_tray(shortcuts_enabled)?;
 
-    let state = WindowState::new(items);
+    let recent_keys = crate::history::load();
+    let state = WindowState::new(items, recent_keys);
 
     eframe::run_native(
         "project-switch",

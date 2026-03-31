@@ -40,11 +40,31 @@ pub struct WindowState {
     visible_frames: u32,
     items: Vec<ListItem>,
     filtered_count: usize,
+    /// Recently executed item keys (most recent first), used to show
+    /// recents when input is empty.
+    recent_keys: Vec<String>,
+}
+
+/// Count items to display when input is empty: recent items if available,
+/// otherwise all items.
+fn recent_count(items: &[ListItem], recent_keys: &[String]) -> usize {
+    if recent_keys.is_empty() {
+        return items.len();
+    }
+    let count = recent_keys
+        .iter()
+        .filter(|key| items.iter().any(|item| item.key == **key))
+        .count();
+    if count > 0 {
+        count
+    } else {
+        items.len()
+    }
 }
 
 impl WindowState {
-    pub fn new(items: Vec<ListItem>) -> Self {
-        let count = items.len();
+    pub fn new(items: Vec<ListItem>, recent_keys: Vec<String>) -> Self {
+        let count = recent_count(&items, &recent_keys);
         Self {
             input: String::new(),
             selected: 0,
@@ -53,6 +73,7 @@ impl WindowState {
             visible_frames: 0,
             items,
             filtered_count: count,
+            recent_keys,
         }
     }
 
@@ -63,7 +84,7 @@ impl WindowState {
         self.visibility = Visibility::Visible;
         self.had_focus = false;
         self.visible_frames = 0;
-        self.filtered_count = self.items.len();
+        self.filtered_count = recent_count(&self.items, &self.recent_keys);
     }
 
     /// Hide the window.
@@ -146,7 +167,20 @@ impl WindowState {
     }
 
     /// Get the currently filtered items.
+    /// When input is empty and recent history exists, returns only recent
+    /// items (validated against the current item list). Otherwise uses
+    /// standard full-list filtering.
     pub fn filtered_items(&self) -> Vec<&ListItem> {
+        if self.input.is_empty() && !self.recent_keys.is_empty() {
+            let recent: Vec<&ListItem> = self
+                .recent_keys
+                .iter()
+                .filter_map(|key| self.items.iter().find(|item| item.key == *key))
+                .collect();
+            if !recent.is_empty() {
+                return recent;
+            }
+        }
         filter_items(&self.items, &self.input)
     }
 
@@ -164,6 +198,13 @@ impl WindowState {
         self.update_filtered_count();
     }
 
+    #[allow(dead_code)]
+    /// Update the recent-history keys (e.g., after the daemon executes an action).
+    pub fn set_recent_keys(&mut self, keys: Vec<String>) {
+        self.recent_keys = keys;
+        self.update_filtered_count();
+    }
+
     /// Append additional items (e.g., shortcuts loaded asynchronously).
     /// Preserves the current input and selection.
     pub fn append_items(&mut self, new_items: Vec<ListItem>) {
@@ -172,7 +213,7 @@ impl WindowState {
     }
 
     fn update_filtered_count(&mut self) {
-        self.filtered_count = filter_items(&self.items, &self.input).len();
+        self.filtered_count = self.filtered_items().len();
     }
 }
 
@@ -197,20 +238,20 @@ mod tests {
 
     #[test]
     fn initial_state_is_hidden() {
-        let state = WindowState::new(sample_items());
+        let state = WindowState::new(sample_items(), vec![]);
         assert_eq!(state.visibility, Visibility::Hidden);
     }
 
     #[test]
     fn show_sets_visible() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         assert_eq!(state.visibility, Visibility::Visible);
     }
 
     #[test]
     fn hide_sets_hidden() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.hide();
         assert_eq!(state.visibility, Visibility::Hidden);
@@ -218,7 +259,7 @@ mod tests {
 
     #[test]
     fn toggle_flips_visibility() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.toggle();
         assert_eq!(state.visibility, Visibility::Visible);
         state.toggle();
@@ -229,7 +270,7 @@ mod tests {
 
     #[test]
     fn show_clears_input() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("github".to_string());
         state.show();
@@ -238,7 +279,7 @@ mod tests {
 
     #[test]
     fn show_resets_selection() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_down();
         state.navigate_down();
@@ -249,7 +290,7 @@ mod tests {
 
     #[test]
     fn show_populates_all_items() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         assert_eq!(state.filtered_count(), 3);
     }
@@ -258,14 +299,14 @@ mod tests {
 
     #[test]
     fn empty_input_shows_all() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         assert_eq!(state.filtered_items().len(), 3);
     }
 
     #[test]
     fn typing_filters_items() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("git".to_string());
         assert_eq!(state.filtered_count(), 1);
@@ -274,7 +315,7 @@ mod tests {
 
     #[test]
     fn typing_resets_selection() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_down();
         assert_eq!(state.selected, 1);
@@ -284,7 +325,7 @@ mod tests {
 
     #[test]
     fn no_matches_returns_empty() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("nonexistent".to_string());
         assert_eq!(state.filtered_count(), 0);
@@ -295,7 +336,7 @@ mod tests {
 
     #[test]
     fn navigate_down_increments_selection() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_down();
         assert_eq!(state.selected, 1);
@@ -303,7 +344,7 @@ mod tests {
 
     #[test]
     fn navigate_down_clamps_at_bottom() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_down();
         state.navigate_down();
@@ -314,7 +355,7 @@ mod tests {
 
     #[test]
     fn navigate_up_decrements_selection() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_down();
         state.navigate_down();
@@ -324,7 +365,7 @@ mod tests {
 
     #[test]
     fn navigate_up_clamps_at_top() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_up(); // already at 0
         assert_eq!(state.selected, 0);
@@ -332,7 +373,7 @@ mod tests {
 
     #[test]
     fn navigate_within_filtered_list() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("sl".to_string()); // matches "slack" only
         assert_eq!(state.filtered_count(), 1);
@@ -344,7 +385,7 @@ mod tests {
 
     #[test]
     fn selected_item_from_filtered() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_down();
         let filtered = state.filtered_items();
@@ -355,14 +396,14 @@ mod tests {
 
     #[test]
     fn input_mode_normal_by_default() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         assert_eq!(state.input_mode(), InputMode::Normal);
     }
 
     #[test]
     fn input_mode_normal_with_text() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("github".to_string());
         assert_eq!(state.input_mode(), InputMode::Normal);
@@ -370,7 +411,7 @@ mod tests {
 
     #[test]
     fn input_mode_calculator_empty_expr() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("=".to_string());
         assert_eq!(
@@ -383,7 +424,7 @@ mod tests {
 
     #[test]
     fn input_mode_calculator_valid_expr() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("=5+3".to_string());
         assert_eq!(
@@ -396,7 +437,7 @@ mod tests {
 
     #[test]
     fn input_mode_calculator_invalid_expr() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("=abc".to_string());
         assert_eq!(
@@ -409,7 +450,7 @@ mod tests {
 
     #[test]
     fn input_mode_calculator_incomplete_expr() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("=5+".to_string());
         assert_eq!(
@@ -422,7 +463,7 @@ mod tests {
 
     #[test]
     fn input_mode_calculator_incomplete_unclosed_paren() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("=5*(3+".to_string());
         assert_eq!(
@@ -435,7 +476,7 @@ mod tests {
 
     #[test]
     fn input_mode_file_path_drive_letter() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("C:\\Users".to_string());
         assert_eq!(state.input_mode(), InputMode::FilePath);
@@ -443,7 +484,7 @@ mod tests {
 
     #[test]
     fn input_mode_file_path_unc() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.set_input("\\\\server\\share".to_string());
         assert_eq!(state.input_mode(), InputMode::FilePath);
@@ -453,7 +494,7 @@ mod tests {
 
     #[test]
     fn set_items_replaces_and_resets() {
-        let mut state = WindowState::new(sample_items());
+        let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
         state.navigate_down();
         state.set_items(vec![ListItem {
@@ -463,5 +504,54 @@ mod tests {
         }]);
         assert_eq!(state.selected, 0);
         assert_eq!(state.filtered_count(), 1);
+    }
+
+    // --- Recent items ---
+
+    #[test]
+    fn empty_input_with_recents_shows_only_recents() {
+        let recents = vec!["jira".to_string(), "slack".to_string()];
+        let mut state = WindowState::new(sample_items(), recents);
+        state.show();
+        let filtered = state.filtered_items();
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].key, "jira");
+        assert_eq!(filtered[1].key, "slack");
+    }
+
+    #[test]
+    fn typing_with_recents_filters_full_list() {
+        let recents = vec!["jira".to_string()];
+        let mut state = WindowState::new(sample_items(), recents);
+        state.show();
+        state.set_input("git".to_string());
+        let filtered = state.filtered_items();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key, "github");
+    }
+
+    #[test]
+    fn recents_excludes_missing_items() {
+        let recents = vec!["jira".to_string(), "deleted".to_string()];
+        let mut state = WindowState::new(sample_items(), recents);
+        state.show();
+        let filtered = state.filtered_items();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key, "jira");
+    }
+
+    #[test]
+    fn empty_recents_shows_all_items() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        assert_eq!(state.filtered_items().len(), 3);
+    }
+
+    #[test]
+    fn all_recents_invalid_falls_back_to_full_list() {
+        let recents = vec!["deleted1".to_string(), "deleted2".to_string()];
+        let mut state = WindowState::new(sample_items(), recents);
+        state.show();
+        assert_eq!(state.filtered_items().len(), 3);
     }
 }
