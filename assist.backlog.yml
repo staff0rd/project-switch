@@ -56,7 +56,8 @@
     - The window dismisses normally on focus loss regardless of how it was activated
   currentPhase: 1
   status: done
-- type: story
+- id: 4
+  type: story
   name: Graceful incomplete calculator expressions
   description: Distinguish between incomplete and genuinely invalid calculator expressions. While typing an incomplete expression (e.g. =5+), show = 5+... instead of a raw parse error. Only show invalid expression for input that is truly wrong (e.g. =abc).
   acceptanceCriteria:
@@ -82,5 +83,35 @@
           verify: cargo test
         - task: Update the CLI submit path to show a friendlier message for incomplete expressions
           verify: cargo test
-  id: 4
+  currentPhase: 1
+  status: in-progress
+  comments:
+    - text: Added is_incomplete_expr helper, CalcResult three-state enum (Ok/Incomplete/Invalid), and eval_calc_input wrapper. Updated all call sites (state.rs, window.rs, list.rs) to use the new classification. Incomplete expressions (trailing operator or unclosed parens) now return CalcResult::Incomplete; genuinely invalid input returns CalcResult::Invalid. Added 11 unit tests covering both detection and classification.
+      phase: 0
+      timestamp: 2026-03-30T07:01:36.894Z
+      type: summary
+- type: story
+  name: Recent actions on list open
+  description: When the list UI opens, display the most recent actions (up to 10) instead of the full list. As soon as the user types, switch to filtering the full item list. Recent actions are persisted across sessions.
+  acceptanceCriteria:
+    - Executing any item from the list records it in a history file (max 10, most recent first, deduplicated)
+    - When the list opens with empty input, only recent items are shown
+    - Re-executing an item moves it to the top of the recents list
+    - When the user types any character, filtering switches to the full item list (existing behavior)
+    - If a recent item no longer exists in the config/shortcuts, it is excluded from the recents display
+    - Works in both GUI and terminal modes
+  plan:
+    - name: History persistence
+      tasks:
+        - task: Add a history module that reads/writes a recent-actions file (e.g. ~/.project-switch-history.yml)
+          verify: cargo build compiles without errors
+        - task: Record the item key on each execution in execute_action(), cap at 10 entries, deduplicate by moving re-executed items to the top
+          verify: cargo build compiles and unit test confirms dedup and cap behavior
+    - name: UI integration
+      tasks:
+        - task: Pass recent history into WindowState. When input is empty, filtered_items() returns only recent items (validated against current items). When input is non-empty, use existing full-list filtering.
+          verify: cargo build compiles without errors
+        - task: Apply same recent-items logic to the terminal/inquire mode in execute()
+          verify: cargo build compiles without errors
+  id: 5
   status: todo
