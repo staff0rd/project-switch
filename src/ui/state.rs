@@ -164,6 +164,13 @@ impl WindowState {
         self.update_filtered_count();
     }
 
+    /// Append additional items (e.g., shortcuts loaded asynchronously).
+    /// Preserves the current input and selection.
+    pub fn append_items(&mut self, new_items: Vec<ListItem>) {
+        self.items.extend(new_items);
+        self.update_filtered_count();
+    }
+
     fn update_filtered_count(&mut self) {
         self.filtered_count = filter_items(&self.items, &self.input).len();
     }

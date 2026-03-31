@@ -131,7 +131,8 @@ impl Autocomplete for ListAutocomplete {
     }
 }
 
-pub fn load_items(
+/// Load only command items from config (fast — no filesystem scanning).
+fn load_command_items(
     config_manager: &ConfigManager,
 ) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
     let resolved = config_manager.resolve_current_project();
@@ -148,7 +149,7 @@ pub fn load_items(
     all_commands.sort_by(|a, b| a.key.cmp(&b.key));
     all_commands.dedup_by(|a, b| a.key == b.key);
 
-    let mut all_items: Vec<ListItem> = all_commands
+    let all_items: Vec<ListItem> = all_commands
         .iter()
         .map(|cmd| ListItem {
             key: cmd.key.clone(),
@@ -161,20 +162,33 @@ pub fn load_items(
         })
         .collect();
 
+    (all_commands, all_items)
+}
+
+/// Collect shortcut items from the filesystem.
+fn collect_shortcut_items(extra_paths: &[String], exclude: &[String]) -> Vec<ListItem> {
+    shortcuts::collect_shortcuts(extra_paths, exclude)
+        .into_iter()
+        .map(|entry| ListItem {
+            key: entry.name,
+            display_detail: entry.path.display().to_string(),
+            kind: ListItemKind::Shortcut {
+                path: entry.path.display().to_string(),
+            },
+        })
+        .collect()
+}
+
+pub fn load_items(
+    config_manager: &ConfigManager,
+) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
+    let (all_commands, mut all_items) = load_command_items(config_manager);
+
     let shortcuts_config = config_manager.get_shortcuts_config();
     if shortcuts_config.enabled {
         let extra_paths = shortcuts_config.extra_paths.unwrap_or_default();
         let exclude = shortcuts_config.exclude.unwrap_or_default();
-        let shortcut_entries = shortcuts::collect_shortcuts(&extra_paths, &exclude);
-        for entry in shortcut_entries {
-            all_items.push(ListItem {
-                key: entry.name,
-                display_detail: entry.path.display().to_string(),
-                kind: ListItemKind::Shortcut {
-                    path: entry.path.display().to_string(),
-                },
-            });
-        }
+        all_items.extend(collect_shortcut_items(&extra_paths, &exclude));
     }
 
     (all_commands, all_items)
@@ -298,9 +312,24 @@ pub fn execute_gui() -> Result<()> {
         .map(|(name, _)| name.clone())
         .unwrap_or_else(|| "global".to_string());
 
-    let (_, all_items) = load_items(&config_manager);
+    // Load commands only (fast) — shortcuts are deferred to a background thread
+    let (_, command_items) = load_command_items(&config_manager);
 
-    let mut state = crate::ui::WindowState::new(all_items);
+    // Spawn async shortcut collection so the window can open immediately
+    let shortcuts_config = config_manager.get_shortcuts_config();
+    let shortcut_rx = if shortcuts_config.enabled {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let extra_paths = shortcuts_config.extra_paths.unwrap_or_default();
+        let exclude = shortcuts_config.exclude.unwrap_or_default();
+        std::thread::spawn(move || {
+            let _ = tx.send(collect_shortcut_items(&extra_paths, &exclude));
+        });
+        Some(rx)
+    } else {
+        None
+    };
+
+    let mut state = crate::ui::WindowState::new(command_items);
     state.show();
 
     eframe::run_native(
@@ -308,7 +337,11 @@ pub fn execute_gui() -> Result<()> {
         crate::ui::launcher_options(true),
         Box::new(move |cc| {
             crate::ui::apply_launcher_style(&cc.egui_ctx);
-            Ok(Box::new(crate::ui::LauncherApp::new(state, display_name)))
+            Ok(Box::new(crate::ui::LauncherApp::new(
+                state,
+                display_name,
+                shortcut_rx,
+            )))
         }),
     )
     .map_err(|e| anyhow::anyhow!("GUI error: {}", e))

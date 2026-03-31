@@ -77,29 +77,40 @@ pub fn kill_existing_hotkey_instances() {
 pub fn launch_project_switch(project_switch: &Path) {
     use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 
-    // Kill any existing project-switch.exe instances first
-    let _ = Command::new("taskkill")
-        .args(["/IM", "project-switch.exe", "/F"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
-
-    // Launch the windowed GUI launcher directly
-    match Command::new(project_switch)
+    // Launch the new instance first so the window appears immediately.
+    let child = match Command::new(project_switch)
         .args(["list", "--gui"])
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
-        Ok(child) => {
-            // Grant the child process permission to call SetForegroundWindow.
-            // Without this, Windows silently ignores the request ~50% of the
-            // time because only the current foreground process (or one it
-            // explicitly authorises) is allowed to steal focus.
-            unsafe {
-                let _ = AllowSetForegroundWindow(child.id());
-            }
+        Ok(child) => child,
+        Err(e) => {
+            eprintln!("Failed to launch project-switch: {e}");
+            return;
         }
-        Err(e) => eprintln!("Failed to launch project-switch: {e}"),
+    };
+
+    let new_pid = child.id();
+
+    // Grant the child process permission to call SetForegroundWindow.
+    // Without this, Windows silently ignores the request ~50% of the
+    // time because only the current foreground process (or one it
+    // explicitly authorises) is allowed to steal focus.
+    unsafe {
+        let _ = AllowSetForegroundWindow(new_pid);
     }
+
+    // Kill old instances (non-blocking), excluding the one we just spawned.
+    let _ = Command::new("wmic")
+        .args([
+            "process",
+            "where",
+            &format!("Name='project-switch.exe' and ProcessId!='{new_pid}'"),
+            "call",
+            "terminate",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
 }

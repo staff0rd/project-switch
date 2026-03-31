@@ -224,15 +224,22 @@ pub struct LauncherApp {
     prev_input: String,
     /// Counts frames since creation; used to request OS focus during startup.
     startup_frames: u32,
+    /// Receives shortcuts collected on a background thread.
+    shortcut_rx: Option<std::sync::mpsc::Receiver<Vec<crate::launcher::ListItem>>>,
 }
 
 impl LauncherApp {
-    pub fn new(state: WindowState, project_name: String) -> Self {
+    pub fn new(
+        state: WindowState,
+        project_name: String,
+        shortcut_rx: Option<std::sync::mpsc::Receiver<Vec<crate::launcher::ListItem>>>,
+    ) -> Self {
         Self {
             state,
             project_name,
             prev_input: String::new(),
             startup_frames: 0,
+            shortcut_rx,
         }
     }
 }
@@ -240,6 +247,18 @@ impl LauncherApp {
 impl eframe::App for LauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         use crate::ui::state::Visibility;
+
+        // Merge async-loaded shortcuts when ready
+        if let Some(rx) = self.shortcut_rx.take() {
+            match rx.try_recv() {
+                Ok(items) => self.state.append_items(items),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.shortcut_rx = Some(rx);
+                    ctx.request_repaint();
+                }
+            }
+        }
 
         // Hide on focus loss (focused → unfocused transition only).
         let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));

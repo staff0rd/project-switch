@@ -136,4 +136,20 @@
     **Actual:** There is a noticeable ~500ms delay before the window appears.
   acceptanceCriteria:
     - The GUI list appears with no perceptible delay after pressing ALT+SPACE
-  status: todo
+  currentPhase: 1
+  status: done
+  comments:
+    - text: "Phase 1 changes: (1) hotkey service: changed taskkill from blocking .status() to non-blocking .spawn() — saves ~50-100ms. (2) GUI: split load_items into load_command_items (fast, config-only) and collect_shortcut_items (slow, filesystem scan). execute_gui now loads commands immediately, opens the window, and collects shortcuts on a background thread via mpsc channel. LauncherApp polls the channel each frame and appends shortcuts when ready. (3) Added WindowState::append_items to merge shortcuts without resetting selection/input."
+      timestamp: 2026-03-31T02:17:11.522Z
+      type: comment
+    - text: Made taskkill non-blocking in hotkey service (~50-100ms saved). Deferred shortcut filesystem scanning to a background thread in GUI mode — window opens immediately with commands, shortcuts merge in asynchronously via mpsc channel.
+      phase: 0
+      timestamp: 2026-03-31T02:17:17.237Z
+      type: summary
+    - text: "Review: launch-first-kill-later pattern fixed the race where non-blocking taskkill killed the new process. Window now opens immediately — new process spawns first, gets foreground permission, then old instances are killed by PID exclusion via wmic."
+      timestamp: 2026-03-31T02:40:47.695Z
+      type: comment
+    - text: Eliminated hotkey-to-GUI delay by deferring shortcut filesystem scanning to a background thread (window opens immediately with commands only, shortcuts merge in async) and reordering launch_project_switch to spawn the new process before killing old instances (PID-excluded wmic, non-blocking).
+      phase: 1
+      timestamp: 2026-03-31T02:40:53.809Z
+      type: summary
