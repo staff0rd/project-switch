@@ -199,4 +199,18 @@
           verify: cargo test
         - task: Add unit tests for mixed recents display and selection behaviour
           verify: cargo test
-  status: todo
+  currentPhase: 2
+  status: done
+  comments:
+    - text: "Record calc expressions and file paths in history. Added history::record() calls in: (1) execute_action() for file paths before launch, (2) execute() terminal path for successful calc expressions, (3) GUI window.rs calculator Enter handler. Added 6 unit tests covering expression recording, file path recording, deduplication, mixed entries, and cap enforcement."
+      phase: 0
+      timestamp: 2026-03-31T07:58:39.814Z
+      type: summary
+    - text: "Phase 2: Display and execute recents. Added FilteredEntry enum (Item/Expression/Path) and filtered_entries() to WindowState for mixed recents including non-item history. GUI Normal mode renders expressions as '=expr -> result' (green) and file paths as '[path] path' (blue). Selecting an expression populates input triggering calculator mode; selecting a path opens it. CLI matching_suggestions and get_completion updated similarly. Extracted open_path_and_hide helper to deduplicate. 8 new unit tests for mixed recents display, formatting, count, navigation, and selection."
+      phase: 1
+      timestamp: 2026-03-31T08:11:44.433Z
+      type: summary
+    - text: Calculator expressions and file paths are recorded in history and appear in the recents list with distinct formatting (green =expr -> result, blue [path] prefix). Selecting a recent expression re-enters calculator mode; selecting a recent path opens it. Existing command/shortcut history unchanged.
+      phase: 2
+      timestamp: 2026-03-31T08:15:21.232Z
+      type: summary

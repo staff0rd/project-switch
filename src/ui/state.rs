@@ -16,6 +16,18 @@ pub enum InputMode {
     FilePath,
 }
 
+/// An entry in the filtered display list, including both regular items
+/// and non-item history entries (expressions, file paths).
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilteredEntry {
+    /// A regular list item (command or shortcut).
+    Item(ListItem),
+    /// A recent calculator expression with its evaluated result.
+    Expression { input: String, display: String },
+    /// A recent file path.
+    Path(String),
+}
+
 /// Whether the launcher window is visible.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Visibility {
@@ -45,36 +57,20 @@ pub struct WindowState {
     recent_keys: Vec<String>,
 }
 
-/// Count items to display when input is empty: recent items if available,
-/// otherwise all items.
-fn recent_count(items: &[ListItem], recent_keys: &[String]) -> usize {
-    if recent_keys.is_empty() {
-        return items.len();
-    }
-    let count = recent_keys
-        .iter()
-        .filter(|key| items.iter().any(|item| item.key == **key))
-        .count();
-    if count > 0 {
-        count
-    } else {
-        items.len()
-    }
-}
-
 impl WindowState {
     pub fn new(items: Vec<ListItem>, recent_keys: Vec<String>) -> Self {
-        let count = recent_count(&items, &recent_keys);
-        Self {
+        let mut s = Self {
             input: String::new(),
             selected: 0,
             visibility: Visibility::Hidden,
             had_focus: false,
             visible_frames: 0,
             items,
-            filtered_count: count,
+            filtered_count: 0,
             recent_keys,
-        }
+        };
+        s.update_filtered_count();
+        s
     }
 
     /// Show the window: clear input, reset selection, set visible.
@@ -84,7 +80,7 @@ impl WindowState {
         self.visibility = Visibility::Visible;
         self.had_focus = false;
         self.visible_frames = 0;
-        self.filtered_count = recent_count(&self.items, &self.recent_keys);
+        self.update_filtered_count();
     }
 
     /// Hide the window.
@@ -166,7 +162,8 @@ impl WindowState {
         }
     }
 
-    /// Get the currently filtered items.
+    #[allow(dead_code)]
+    /// Get the currently filtered items (item-only, excludes non-item recents).
     /// When input is empty and recent history exists, returns only recent
     /// items (validated against the current item list). Otherwise uses
     /// standard full-list filtering.
@@ -182,6 +179,45 @@ impl WindowState {
             }
         }
         filter_items(&self.items, &self.input)
+    }
+
+    /// Get the full filtered entry list including non-item recents
+    /// (expressions, file paths). Used for GUI display and navigation.
+    pub fn filtered_entries(&self) -> Vec<FilteredEntry> {
+        if self.input.is_empty() && !self.recent_keys.is_empty() {
+            let entries: Vec<FilteredEntry> = self
+                .recent_keys
+                .iter()
+                .filter_map(|key| {
+                    // Known list item
+                    if let Some(item) = self.items.iter().find(|item| item.key == *key) {
+                        return Some(FilteredEntry::Item(item.clone()));
+                    }
+                    // Calculator expression (only valid ones)
+                    if let Some(expr) = key.strip_prefix('=') {
+                        if let CalcResult::Ok(value) = eval_calc_input(expr.trim()) {
+                            return Some(FilteredEntry::Expression {
+                                input: key.clone(),
+                                display: format!("{} -> {}", key, value),
+                            });
+                        }
+                        return None;
+                    }
+                    // File path
+                    if is_file_path(key) {
+                        return Some(FilteredEntry::Path(key.clone()));
+                    }
+                    None
+                })
+                .collect();
+            if !entries.is_empty() {
+                return entries;
+            }
+        }
+        filter_items(&self.items, &self.input)
+            .into_iter()
+            .map(|item| FilteredEntry::Item(item.clone()))
+            .collect()
     }
 
     #[allow(dead_code)]
@@ -213,7 +249,7 @@ impl WindowState {
     }
 
     fn update_filtered_count(&mut self) {
-        self.filtered_count = self.filtered_items().len();
+        self.filtered_count = self.filtered_entries().len();
     }
 }
 
@@ -553,5 +589,118 @@ mod tests {
         let mut state = WindowState::new(sample_items(), recents);
         state.show();
         assert_eq!(state.filtered_items().len(), 3);
+    }
+
+    // --- Filtered entries (expressions & paths in recents) ---
+
+    /// Build state from recents, show it, and return entries.
+    fn entries_for(recents: Vec<String>) -> Vec<FilteredEntry> {
+        let mut state = WindowState::new(sample_items(), recents);
+        state.show();
+        state.filtered_entries()
+    }
+
+    fn mixed_recents() -> Vec<String> {
+        vec![
+            "jira".to_string(),
+            "=5+3".to_string(),
+            "C:\\path".to_string(),
+        ]
+    }
+
+    #[test]
+    fn entries_expression_recent_appears() {
+        let entries = entries_for(vec!["=5+3".to_string()]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0],
+            FilteredEntry::Expression {
+                input: "=5+3".to_string(),
+                display: "=5+3 -> 8".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn entries_file_path_recent_appears() {
+        let entries = entries_for(vec!["C:\\Users\\test\\file.txt".to_string()]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0],
+            FilteredEntry::Path("C:\\Users\\test\\file.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn entries_mixed_recents_preserves_order() {
+        let entries = entries_for(vec![
+            "jira".to_string(),
+            "=10*2".to_string(),
+            "C:\\temp\\notes.md".to_string(),
+            "github".to_string(),
+        ]);
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0], FilteredEntry::Item(make_item("jira")));
+        assert_eq!(
+            entries[1],
+            FilteredEntry::Expression {
+                input: "=10*2".to_string(),
+                display: "=10*2 -> 20".to_string(),
+            }
+        );
+        assert_eq!(
+            entries[2],
+            FilteredEntry::Path("C:\\temp\\notes.md".to_string())
+        );
+        assert_eq!(entries[3], FilteredEntry::Item(make_item("github")));
+    }
+
+    #[test]
+    fn entries_invalid_expression_excluded() {
+        let entries = entries_for(vec!["=abc".to_string(), "jira".to_string()]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0], FilteredEntry::Item(make_item("jira")));
+    }
+
+    #[test]
+    fn entries_count_includes_non_item_recents() {
+        let mut state = WindowState::new(sample_items(), mixed_recents());
+        state.show();
+        assert_eq!(state.filtered_count(), 3);
+    }
+
+    #[test]
+    fn entries_navigate_clamps_with_mixed_recents() {
+        let mut state =
+            WindowState::new(sample_items(), vec!["jira".to_string(), "=5+3".to_string()]);
+        state.show();
+        assert_eq!(state.filtered_count(), 2);
+        state.navigate_down();
+        state.navigate_down(); // past end
+        assert_eq!(state.selected, 1); // clamped
+    }
+
+    #[test]
+    fn entries_typing_after_mixed_recents_filters_items_only() {
+        let mut state = WindowState::new(sample_items(), mixed_recents());
+        state.show();
+        state.set_input("git".to_string());
+        let entries = state.filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0], FilteredEntry::Item(make_item("github")));
+    }
+
+    #[test]
+    fn entries_selecting_expression_switches_to_calculator_mode() {
+        let mut state = WindowState::new(sample_items(), vec!["=5+3".to_string()]);
+        state.show();
+        // Simulate selecting the expression (set_input like the GUI does)
+        state.set_input("=5+3".to_string());
+        assert_eq!(
+            state.input_mode(),
+            InputMode::Calculator {
+                result: CalcResult::Ok("8".to_string())
+            }
+        );
     }
 }

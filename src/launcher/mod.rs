@@ -9,7 +9,7 @@ pub enum ListItemKind {
 }
 
 /// A single item in the launcher list.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ListItem {
     pub key: String,
     pub display_detail: String,

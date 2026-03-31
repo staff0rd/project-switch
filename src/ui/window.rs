@@ -1,7 +1,7 @@
 //! egui launcher window — renders the text input and filtered list.
 
 use crate::launcher::{get_path_entries, CalcResult, ListItemKind};
-use crate::ui::state::{InputMode, WindowState};
+use crate::ui::state::{FilteredEntry, InputMode, WindowState};
 use eframe::egui;
 
 fn set_path_input(state: &mut WindowState, prev_input: &mut String, path: &str) {
@@ -9,6 +9,15 @@ fn set_path_input(state: &mut WindowState, prev_input: &mut String, path: &str) 
     *prev_input = state.input.clone();
     let new_input = state.input.clone();
     state.set_input(new_input);
+}
+
+fn open_path_and_hide(state: &mut WindowState, path: String) {
+    state.hide();
+    std::thread::spawn(move || {
+        if let Err(e) = crate::commands::list::execute_action(&path) {
+            eprintln!("Action error: {e:#}");
+        }
+    });
 }
 
 fn execute_and_hide(state: &mut WindowState) {
@@ -78,6 +87,12 @@ pub fn render_launcher(
 
         match state.input_mode() {
             InputMode::Calculator { result } => {
+                if key_enter {
+                    if let CalcResult::Ok(_) = &result {
+                        crate::history::record(&state.input).ok();
+                    }
+                    return;
+                }
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
                     match result {
@@ -122,12 +137,7 @@ pub fn render_launcher(
                     if path.ends_with('\\') {
                         set_path_input(state, prev_input, &path);
                     } else {
-                        state.hide();
-                        std::thread::spawn(move || {
-                            if let Err(e) = crate::commands::list::execute_action(&path) {
-                                eprintln!("Action error: {e:#}");
-                            }
-                        });
+                        open_path_and_hide(state, path);
                     }
                     return;
                 }
@@ -164,40 +174,99 @@ pub fn render_launcher(
                 if key_up {
                     state.navigate_up();
                 }
-                let filtered = state.filtered_items();
+
+                // Handle Enter on non-item recents (expression/path) first,
+                // extracting owned data before taking mutable borrows.
+                if key_enter {
+                    enum RecentAction {
+                        Expression(String),
+                        Path(String),
+                        None,
+                    }
+                    let action = {
+                        let entries = state.filtered_entries();
+                        let sel = state.selected;
+                        if !entries.is_empty() && sel < entries.len() {
+                            match &entries[sel] {
+                                FilteredEntry::Expression { input, .. } => {
+                                    RecentAction::Expression(input.clone())
+                                }
+                                FilteredEntry::Path(path) => RecentAction::Path(path.clone()),
+                                FilteredEntry::Item(_) => RecentAction::None,
+                            }
+                        } else {
+                            RecentAction::None
+                        }
+                    };
+                    match action {
+                        RecentAction::Expression(expr_input) => {
+                            *prev_input = expr_input.clone();
+                            state.set_input(expr_input);
+                            return;
+                        }
+                        RecentAction::Path(path) => {
+                            open_path_and_hide(state, path);
+                            return;
+                        }
+                        RecentAction::None => {}
+                    }
+                }
+
+                let entries = state.filtered_entries();
                 let selected = state.selected;
 
-                if key_enter && !filtered.is_empty() && selected < filtered.len() {
+                if key_enter && !entries.is_empty() && selected < entries.len() {
                     execute_and_hide(state);
                     return;
                 }
-                if key_enter && filtered.is_empty() && crate::utils::url::is_url(&state.input) {
+                if key_enter && entries.is_empty() && crate::utils::url::is_url(&state.input) {
                     execute_and_hide(state);
                     return;
                 }
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (i, item) in filtered.iter().enumerate() {
+                    for (i, entry) in entries.iter().enumerate() {
                         let is_selected = i == selected;
 
-                        let label = match &item.kind {
-                            ListItemKind::Command => {
-                                let detail = if item.display_detail.len() > 50 {
-                                    format!("{}...", &item.display_detail[..47])
-                                } else {
-                                    item.display_detail.clone()
-                                };
-                                let text = format!("{}  -  {}", item.key, detail);
+                        let label = match entry {
+                            FilteredEntry::Item(item) => match &item.kind {
+                                ListItemKind::Command => {
+                                    let detail = if item.display_detail.len() > 50 {
+                                        format!("{}...", &item.display_detail[..47])
+                                    } else {
+                                        item.display_detail.clone()
+                                    };
+                                    let text = format!("{}  -  {}", item.key, detail);
+                                    if is_selected {
+                                        egui::RichText::new(text).strong()
+                                    } else {
+                                        egui::RichText::new(text)
+                                    }
+                                }
+                                ListItemKind::Shortcut { .. } => {
+                                    let text = format!("[app] {}", item.key);
+                                    let rt = egui::RichText::new(text)
+                                        .color(egui::Color32::from_rgb(100, 200, 200));
+                                    if is_selected {
+                                        rt.strong()
+                                    } else {
+                                        rt
+                                    }
+                                }
+                            },
+                            FilteredEntry::Expression { display, .. } => {
+                                let rt = egui::RichText::new(display)
+                                    .color(egui::Color32::from_rgb(100, 200, 100));
                                 if is_selected {
-                                    egui::RichText::new(text).strong()
+                                    rt.strong()
                                 } else {
-                                    egui::RichText::new(text)
+                                    rt
                                 }
                             }
-                            ListItemKind::Shortcut { .. } => {
-                                let text = format!("[app] {}", item.key);
+                            FilteredEntry::Path(path) => {
+                                let text = format!("[path] {}", path);
                                 let rt = egui::RichText::new(text)
-                                    .color(egui::Color32::from_rgb(100, 200, 200));
+                                    .color(egui::Color32::from_rgb(100, 180, 255));
                                 if is_selected {
                                     rt.strong()
                                 } else {

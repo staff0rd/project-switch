@@ -56,8 +56,24 @@ impl ListAutocomplete {
             let recent: Vec<String> = self
                 .recent_keys
                 .iter()
-                .filter_map(|key| self.items.iter().find(|item| item.key == *key))
-                .map(format_suggestion)
+                .filter_map(|key| {
+                    // Known list item
+                    if let Some(item) = self.items.iter().find(|item| item.key == *key) {
+                        return Some(format_suggestion(item));
+                    }
+                    // Calculator expression
+                    if let Some(expr) = key.strip_prefix('=') {
+                        if let CalcResult::Ok(value) = eval_calc_input(expr.trim()) {
+                            return Some(format!("{}", format!("{} -> {}", key, value).green()));
+                        }
+                        return None;
+                    }
+                    // File path
+                    if is_file_path(key) {
+                        return Some(format!("{}{}", PATH_PREFIX.cyan(), key));
+                    }
+                    None
+                })
                 .collect();
             if !recent.is_empty() {
                 return recent;
@@ -124,6 +140,12 @@ impl Autocomplete for ListAutocomplete {
     ) -> Result<inquire::autocompletion::Replacement, inquire::CustomUserError> {
         if let Some(suggestion) = highlighted_suggestion {
             let clean = strip_ansi_codes(&suggestion);
+            // Expression recent format: "=expr -> result"
+            if clean.starts_with('=') {
+                if let Some(arrow_pos) = clean.find(" -> ") {
+                    return Ok(Some(clean[..arrow_pos].to_string()));
+                }
+            }
             // File path format: "[path] full\path\" or "[path] full\path\file"
             if let Some(full_path) = clean.strip_prefix(PATH_PREFIX) {
                 if is_file_path(full_path) {
@@ -216,6 +238,7 @@ pub fn execute_action(input: &str) -> Result<()> {
     if is_file_path(input) {
         let path = std::path::Path::new(input);
         if path.exists() {
+            crate::history::record(input).ok();
             browser::launch_shortcut(input, false)?;
             return Ok(());
         } else {
@@ -412,6 +435,7 @@ pub fn execute(_debug: bool) -> Result<()> {
     if let Some(expr) = user_input.strip_prefix('=') {
         match eval_calc_input(expr) {
             CalcResult::Ok(display) => {
+                crate::history::record(&user_input).ok();
                 println!("{}", format!("= {}", display).bold().green());
                 return Ok(());
             }

@@ -122,4 +122,81 @@ mod tests {
             assert!(load_from(path).is_empty());
         });
     }
+
+    #[test]
+    fn record_calc_expression() {
+        with_temp_history(|path| {
+            record_to(path, "=5+3");
+            let entries = load_from(path);
+            assert_eq!(entries, vec!["=5+3"]);
+        });
+    }
+
+    #[test]
+    fn record_calc_expression_deduplicates() {
+        with_temp_history(|path| {
+            record_to(path, "github");
+            record_to(path, "=5+3");
+            record_to(path, "jira");
+            record_to(path, "=5+3");
+            let entries = load_from(path);
+            assert_eq!(entries, vec!["=5+3", "jira", "github"]);
+        });
+    }
+
+    #[test]
+    fn record_file_path() {
+        with_temp_history(|path| {
+            record_to(path, "C:\\Users\\test\\file.txt");
+            let entries = load_from(path);
+            assert_eq!(entries, vec!["C:\\Users\\test\\file.txt"]);
+        });
+    }
+
+    #[test]
+    fn record_file_path_deduplicates() {
+        with_temp_history(|path| {
+            record_to(path, "github");
+            record_to(path, "C:\\Users\\test\\file.txt");
+            record_to(path, "jira");
+            record_to(path, "C:\\Users\\test\\file.txt");
+            let entries = load_from(path);
+            assert_eq!(entries, vec!["C:\\Users\\test\\file.txt", "jira", "github"]);
+        });
+    }
+
+    #[test]
+    fn mixed_history_entries() {
+        with_temp_history(|path| {
+            record_to(path, "github");
+            record_to(path, "=10*2");
+            record_to(path, "C:\\temp\\notes.md");
+            record_to(path, "jira");
+            let entries = load_from(path);
+            assert_eq!(
+                entries,
+                vec!["jira", "C:\\temp\\notes.md", "=10*2", "github"]
+            );
+        });
+    }
+
+    #[test]
+    fn mixed_entries_respect_cap() {
+        with_temp_history(|path| {
+            for i in 0..5 {
+                record_to(path, &format!("cmd-{}", i));
+            }
+            for i in 0..3 {
+                record_to(path, &format!("={}+1", i));
+            }
+            record_to(path, "C:\\path1");
+            record_to(path, "C:\\path2");
+            record_to(path, "C:\\path3");
+            let entries = load_from(path);
+            assert_eq!(entries.len(), MAX_ENTRIES);
+            assert_eq!(entries[0], "C:\\path3");
+            assert_eq!(entries[1], "C:\\path2");
+            assert_eq!(entries[2], "C:\\path1");
+        });
+    }
 }
