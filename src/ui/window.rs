@@ -1,6 +1,6 @@
 //! egui launcher window — renders the text input and filtered list.
 
-use crate::launcher::{get_path_entries, ListItemKind};
+use crate::launcher::{get_path_entries, CalcResult, ListItemKind};
 use crate::ui::state::{InputMode, WindowState};
 use eframe::egui;
 
@@ -81,7 +81,7 @@ pub fn render_launcher(
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
                     match result {
-                        Ok(value) => {
+                        CalcResult::Ok(value) => {
                             ui.label(
                                 egui::RichText::new(format!("= {}", value))
                                     .size(28.0)
@@ -89,9 +89,17 @@ pub fn render_launcher(
                                     .color(egui::Color32::from_rgb(100, 200, 100)),
                             );
                         }
-                        Err(msg) => {
+                        CalcResult::Incomplete(partial) => {
                             ui.label(
-                                egui::RichText::new(msg)
+                                egui::RichText::new(format!("= {}...", partial))
+                                    .size(28.0)
+                                    .strong()
+                                    .color(egui::Color32::GRAY),
+                            );
+                        }
+                        CalcResult::Invalid => {
+                            ui.label(
+                                egui::RichText::new("invalid expression")
                                     .size(16.0)
                                     .color(egui::Color32::GRAY),
                             );

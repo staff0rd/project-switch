@@ -76,12 +76,62 @@ pub fn is_file_path(input: &str) -> bool {
     false
 }
 
+/// Three-state result for calculator input classification.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CalcResult {
+    /// Expression evaluated successfully.
+    Ok(String),
+    /// Expression is incomplete (trailing operator or unclosed parens).
+    /// Contains the original expression text for echoing back.
+    Incomplete(String),
+    /// Expression is genuinely invalid.
+    Invalid,
+}
+
+/// Returns `true` when the expression looks incomplete rather than invalid:
+/// it ends with an operator or has unclosed parentheses.
+pub fn is_incomplete_expr(expr: &str) -> bool {
+    let trimmed = expr.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let open = trimmed.chars().filter(|&c| c == '(').count();
+    let close = trimmed.chars().filter(|&c| c == ')').count();
+    if open > close {
+        return true;
+    }
+
+    matches!(
+        trimmed.as_bytes().last(),
+        Some(b'+' | b'-' | b'*' | b'/' | b'^')
+    )
+}
+
+/// Normalize bare decimal points (e.g. `.5` → `0.5`) so meval can parse them.
+fn normalize_decimals(expr: &str) -> String {
+    let bytes = expr.as_bytes();
+    let mut out = String::with_capacity(expr.len() + 4);
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'.'
+            && i + 1 < bytes.len()
+            && bytes[i + 1].is_ascii_digit()
+            && (i == 0 || !bytes[i - 1].is_ascii_digit())
+        {
+            out.push('0');
+        }
+        out.push(b as char);
+    }
+    out
+}
+
 /// Evaluate a calculator expression. Returns Ok(display_string) or Err on invalid input.
 pub fn eval_calculator(expr: &str) -> Result<String, String> {
     let expr = expr.trim();
     if expr.is_empty() {
         return Err("empty expression".to_string());
     }
+    let expr = &normalize_decimals(expr);
     match meval::eval_str(expr) {
         Ok(result) => {
             if result.fract() == 0.0 {
@@ -91,6 +141,19 @@ pub fn eval_calculator(expr: &str) -> Result<String, String> {
             }
         }
         Err(e) => Err(format!("{}", e)),
+    }
+}
+
+/// Classify a calculator expression as ok, incomplete, or invalid.
+pub fn eval_calc_input(expr: &str) -> CalcResult {
+    let trimmed = expr.trim();
+    if trimmed.is_empty() {
+        return CalcResult::Invalid;
+    }
+    match eval_calculator(trimmed) {
+        Ok(value) => CalcResult::Ok(value),
+        Err(_) if is_incomplete_expr(trimmed) => CalcResult::Incomplete(trimmed.to_string()),
+        Err(_) => CalcResult::Invalid,
     }
 }
 
@@ -389,6 +452,16 @@ mod tests {
     }
 
     #[test]
+    fn eval_calculator_bare_decimal() {
+        assert_eq!(eval_calculator("5+4+.01"), Ok("9.01".to_string()));
+    }
+
+    #[test]
+    fn eval_calculator_leading_bare_decimal() {
+        assert_eq!(eval_calculator(".5+.5"), Ok("1".to_string()));
+    }
+
+    #[test]
     fn eval_calculator_empty_expression() {
         assert!(eval_calculator("").is_err());
     }
@@ -401,6 +474,96 @@ mod tests {
     #[test]
     fn eval_calculator_complex_expression() {
         assert_eq!(eval_calculator("(2+3)*4"), Ok("20".to_string()));
+    }
+
+    // --- is_incomplete_expr ---
+
+    #[test]
+    fn incomplete_trailing_plus() {
+        assert!(is_incomplete_expr("5+"));
+    }
+
+    #[test]
+    fn incomplete_trailing_minus() {
+        assert!(is_incomplete_expr("5-"));
+    }
+
+    #[test]
+    fn incomplete_trailing_multiply() {
+        assert!(is_incomplete_expr("5*"));
+    }
+
+    #[test]
+    fn incomplete_trailing_divide() {
+        assert!(is_incomplete_expr("5/"));
+    }
+
+    #[test]
+    fn incomplete_trailing_power() {
+        assert!(is_incomplete_expr("2^"));
+    }
+
+    #[test]
+    fn incomplete_unclosed_paren() {
+        assert!(is_incomplete_expr("5*(3+2"));
+    }
+
+    #[test]
+    fn incomplete_unclosed_paren_trailing_op() {
+        assert!(is_incomplete_expr("5*(3+"));
+    }
+
+    #[test]
+    fn incomplete_not_for_valid_expr() {
+        assert!(!is_incomplete_expr("5+3"));
+    }
+
+    #[test]
+    fn incomplete_not_for_nonsense() {
+        assert!(!is_incomplete_expr("abc"));
+    }
+
+    #[test]
+    fn incomplete_not_for_empty() {
+        assert!(!is_incomplete_expr(""));
+    }
+
+    // --- eval_calc_input ---
+
+    #[test]
+    fn calc_input_valid_result() {
+        assert_eq!(eval_calc_input("5+3"), CalcResult::Ok("8".to_string()));
+    }
+
+    #[test]
+    fn calc_input_trailing_operator() {
+        assert_eq!(
+            eval_calc_input("5+"),
+            CalcResult::Incomplete("5+".to_string())
+        );
+    }
+
+    #[test]
+    fn calc_input_unclosed_paren_trailing_op() {
+        assert_eq!(
+            eval_calc_input("5*(3+"),
+            CalcResult::Incomplete("5*(3+".to_string())
+        );
+    }
+
+    #[test]
+    fn calc_input_genuinely_invalid() {
+        assert_eq!(eval_calc_input("abc"), CalcResult::Invalid);
+    }
+
+    #[test]
+    fn calc_input_empty() {
+        assert_eq!(eval_calc_input(""), CalcResult::Invalid);
+    }
+
+    #[test]
+    fn calc_input_complex_valid() {
+        assert_eq!(eval_calc_input("(2+3)*4"), CalcResult::Ok("20".to_string()));
     }
 
     // --- filter_items ---

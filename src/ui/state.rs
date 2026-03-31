@@ -3,7 +3,7 @@
 //! Manages visibility, input, filtering, selection, and transitions
 //! independently of the GUI framework for testability.
 
-use crate::launcher::{eval_calculator, filter_items, is_file_path, ListItem};
+use crate::launcher::{eval_calc_input, filter_items, is_file_path, CalcResult, ListItem};
 
 /// The current input mode, derived from the input text.
 #[derive(Debug, Clone, PartialEq)]
@@ -11,7 +11,7 @@ pub enum InputMode {
     /// Normal item filtering mode.
     Normal,
     /// Calculator mode (input starts with `=`).
-    Calculator { result: Result<String, String> },
+    Calculator { result: CalcResult },
     /// File path browsing mode.
     FilePath,
 }
@@ -131,11 +131,11 @@ impl WindowState {
             let expr = expr.trim();
             if expr.is_empty() {
                 InputMode::Calculator {
-                    result: Err("type an expression".to_string()),
+                    result: CalcResult::Invalid,
                 }
             } else {
                 InputMode::Calculator {
-                    result: eval_calculator(expr),
+                    result: eval_calc_input(expr),
                 }
             }
         } else if is_file_path(&self.input) {
@@ -366,10 +366,12 @@ mod tests {
         let mut state = WindowState::new(sample_items());
         state.show();
         state.set_input("=".to_string());
-        assert!(matches!(
+        assert_eq!(
             state.input_mode(),
-            InputMode::Calculator { result: Err(_) }
-        ));
+            InputMode::Calculator {
+                result: CalcResult::Invalid
+            }
+        );
     }
 
     #[test]
@@ -380,7 +382,7 @@ mod tests {
         assert_eq!(
             state.input_mode(),
             InputMode::Calculator {
-                result: Ok("8".to_string())
+                result: CalcResult::Ok("8".to_string())
             }
         );
     }
@@ -390,10 +392,38 @@ mod tests {
         let mut state = WindowState::new(sample_items());
         state.show();
         state.set_input("=abc".to_string());
-        assert!(matches!(
+        assert_eq!(
             state.input_mode(),
-            InputMode::Calculator { result: Err(_) }
-        ));
+            InputMode::Calculator {
+                result: CalcResult::Invalid
+            }
+        );
+    }
+
+    #[test]
+    fn input_mode_calculator_incomplete_expr() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("=5+".to_string());
+        assert_eq!(
+            state.input_mode(),
+            InputMode::Calculator {
+                result: CalcResult::Incomplete("5+".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn input_mode_calculator_incomplete_unclosed_paren() {
+        let mut state = WindowState::new(sample_items());
+        state.show();
+        state.set_input("=5*(3+".to_string());
+        assert_eq!(
+            state.input_mode(),
+            InputMode::Calculator {
+                result: CalcResult::Incomplete("5*(3+".to_string())
+            }
+        );
     }
 
     #[test]

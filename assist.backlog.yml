@@ -83,12 +83,20 @@
           verify: cargo test
         - task: Update the CLI submit path to show a friendlier message for incomplete expressions
           verify: cargo test
-  currentPhase: 1
-  status: in-progress
+  currentPhase: 2
+  status: done
   comments:
     - text: Added is_incomplete_expr helper, CalcResult three-state enum (Ok/Incomplete/Invalid), and eval_calc_input wrapper. Updated all call sites (state.rs, window.rs, list.rs) to use the new classification. Incomplete expressions (trailing operator or unclosed parens) now return CalcResult::Incomplete; genuinely invalid input returns CalcResult::Invalid. Added 11 unit tests covering both detection and classification.
       phase: 0
       timestamp: 2026-03-30T07:01:36.894Z
+      type: summary
+    - text: Rendered CalcResult::Incomplete as '= {expr}...' in egui (gray, 28pt) and CLI autocomplete (dimmed). Updated CLI submit path to show '= {expr}...' for incomplete and 'invalid expression' for genuinely invalid input. All three UIs now share consistent behavior via eval_calc_input.
+      phase: 1
+      timestamp: 2026-03-31T00:14:36.234Z
+      type: summary
+    - text: Added normalize_decimals to handle bare decimal points (.01 -> 0.01), three-state CalcResult enum (Ok/Incomplete/Invalid), and is_incomplete_expr helper. Incomplete expressions show echoed input with ellipsis; genuinely invalid input shows 'invalid expression'. Both egui and CLI paths share eval_calc_input for consistent behavior.
+      phase: 2
+      timestamp: 2026-03-31T00:41:09.072Z
       type: summary
 - id: 5
   type: story
@@ -115,7 +123,8 @@
         - task: Apply same recent-items logic to the terminal/inquire mode in execute()
           verify: cargo build compiles without errors
   status: todo
-- type: bug
+- id: 6
+  type: bug
   name: Half-second delay between hotkey and GUI list appearing
   description: |-
     **Repro:**
@@ -127,5 +136,4 @@
     **Actual:** There is a noticeable ~500ms delay before the window appears.
   acceptanceCriteria:
     - The GUI list appears with no perceptible delay after pressing ALT+SPACE
-  id: 6
   status: todo

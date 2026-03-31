@@ -1,7 +1,7 @@
 use crate::config::ConfigManager;
 use crate::launcher::{
-    encode_url_args, eval_calculator, filter_items, get_path_entries, is_file_path, merge_args,
-    resolve_item, strip_ansi_codes, ListItem, ListItemKind,
+    encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path, merge_args,
+    resolve_item, strip_ansi_codes, CalcResult, ListItem, ListItemKind,
 };
 use crate::utils::browser;
 use crate::utils::shortcuts;
@@ -68,11 +68,14 @@ impl Autocomplete for ListAutocomplete {
                     "Type a math expression (e.g. =5+1)".dimmed()
                 )]);
             }
-            return Ok(match eval_calculator(expr) {
-                Ok(display) => {
+            return Ok(match eval_calc_input(expr) {
+                CalcResult::Ok(display) => {
                     vec![format!("{}", format!("= {}", display).bold().green())]
                 }
-                Err(_) => vec![format!("{}", "Invalid expression".red())],
+                CalcResult::Incomplete(partial) => {
+                    vec![format!("{}", format!("= {}...", partial).dimmed())]
+                }
+                CalcResult::Invalid => vec![format!("{}", "Invalid expression".red())],
             });
         }
 
@@ -350,12 +353,19 @@ pub fn execute(_debug: bool) -> Result<()> {
 
     // Calculator mode: input starting with '=' evaluates a math expression
     if let Some(expr) = user_input.strip_prefix('=') {
-        match eval_calculator(expr) {
-            Ok(display) => {
+        match eval_calc_input(expr) {
+            CalcResult::Ok(display) => {
                 println!("{}", format!("= {}", display).bold().green());
                 return Ok(());
             }
-            Err(e) => anyhow::bail!("Math error: {}", e),
+            CalcResult::Incomplete(partial) => {
+                println!("{}", format!("= {}...", partial).dimmed());
+                return Ok(());
+            }
+            CalcResult::Invalid => {
+                println!("{}", "invalid expression".dimmed());
+                return Ok(());
+            }
         }
     }
 
