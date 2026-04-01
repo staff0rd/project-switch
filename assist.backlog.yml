@@ -288,3 +288,25 @@
       phase: 1
       timestamp: 2026-04-01T09:55:20.820Z
       type: summary
+- type: story
+  name: Surface config errors in GUI mode and log file
+  description: When project-switch list --gui fails (e.g. bad config), the error is printed to stderr which is invisible because the hotkey daemon spawns the process with CREATE_NO_WINDOW. Add a log file that always captures errors, and show a native message box when in --gui mode.
+  acceptanceCriteria:
+    - All errors written to eprintln! in main() are also appended to ~/.project-switch.log with a timestamp
+    - When --gui flag is active and an error occurs, a native MessageBoxW dialog displays the error instead of printing to stderr
+    - Log file doesn't grow unbounded — truncate if it exceeds 64KB
+  plan:
+    - name: Log file
+      tasks:
+        - task: Add a function that appends a timestamped error line to ~/.project-switch.log, truncating the file if it exceeds 64KB
+          verify: assist verify
+        - task: Call the log function from the main() error handler for all error paths
+          verify: assist verify
+    - name: GUI error dialog
+      tasks:
+        - task: When --gui is active, show errors via MessageBoxW (Win32) instead of eprintln + Press Enter prompt. On non-Windows, fall back to eprintln.
+          verify: assist verify
+        - task: Remove the Press Enter to exit prompt when in --gui mode
+          verify: assist verify
+  id: 10
+  status: todo
