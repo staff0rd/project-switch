@@ -20,11 +20,11 @@ fn open_path_and_hide(state: &mut WindowState, path: String) {
     });
 }
 
-fn execute_and_hide(state: &mut WindowState) {
-    let input = state.input.clone();
-    if input.starts_with('=') {
+fn execute_and_hide(state: &mut WindowState, action_input: &str) {
+    if action_input.starts_with('=') {
         return;
     }
+    let input = action_input.to_string();
     state.hide();
     std::thread::spawn(move || {
         if let Err(e) = crate::commands::list::execute_action(&input) {
@@ -216,11 +216,15 @@ pub fn render_launcher(
                 let selected = state.selected;
 
                 if key_enter && !entries.is_empty() && selected < entries.len() {
-                    execute_and_hide(state);
+                    let action_input = match &entries[selected] {
+                        FilteredEntry::Item(item) => item.key.clone(),
+                        _ => state.input.clone(),
+                    };
+                    execute_and_hide(state, &action_input);
                     return;
                 }
                 if key_enter && entries.is_empty() && crate::utils::url::is_url(&state.input) {
-                    execute_and_hide(state);
+                    execute_and_hide(state, &state.input.clone());
                     return;
                 }
 
