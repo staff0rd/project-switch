@@ -42,6 +42,9 @@ enum Commands {
         /// Launch the windowed GUI launcher instead of the terminal UI
         #[arg(long)]
         gui: bool,
+        /// Monitor number to display the GUI window on (1-based)
+        #[arg(long)]
+        monitor: Option<u32>,
     },
 }
 
@@ -56,9 +59,13 @@ fn main() {
         Some(Commands::Current) => commands::current::execute(),
         #[allow(deprecated)]
         Some(Commands::Open { key }) => commands::open::execute(&key),
-        Some(Commands::List { debug, gui }) => {
+        Some(Commands::List {
+            debug,
+            gui,
+            monitor,
+        }) => {
             if gui {
-                commands::list::execute_gui()
+                commands::list::execute_gui(monitor)
             } else {
                 commands::list::execute(debug)
             }

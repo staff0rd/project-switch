@@ -349,7 +349,7 @@ pub fn execute_action(input: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn execute_gui() -> Result<()> {
+pub fn execute_gui(monitor: Option<u32>) -> Result<()> {
     let config_manager = ConfigManager::new()?;
     let display_name = config_manager
         .resolve_current_project()
@@ -379,7 +379,7 @@ pub fn execute_gui() -> Result<()> {
 
     eframe::run_native(
         "project-switch",
-        crate::ui::launcher_options(true),
+        crate::ui::launcher_options(true, monitor),
         Box::new(move |cc| {
             crate::ui::apply_launcher_style(&cc.egui_ctx);
             Ok(Box::new(crate::ui::LauncherApp::new(

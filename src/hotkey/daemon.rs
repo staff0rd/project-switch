@@ -186,7 +186,7 @@ pub fn run() -> Result<()> {
 
     eframe::run_native(
         "project-switch",
-        crate::ui::launcher_options(false),
+        crate::ui::launcher_options(false, None),
         Box::new(move |cc| {
             crate::ui::apply_launcher_style(&cc.egui_ctx);
 

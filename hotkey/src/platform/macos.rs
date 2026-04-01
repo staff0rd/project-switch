@@ -36,7 +36,7 @@ pub fn kill_existing_hotkey_instances() {
     }
 }
 
-pub fn launch_project_switch(project_switch: &Path) {
+pub fn launch_project_switch(project_switch: &Path, monitor: u32) {
     // Kill any existing project-switch instances
     let _ = Command::new("pkill")
         .args(["-f", "project-switch list"])
@@ -44,8 +44,10 @@ pub fn launch_project_switch(project_switch: &Path) {
         .stderr(Stdio::null())
         .status();
 
+    let monitor_arg = monitor.to_string();
+
     // Launch the windowed GUI launcher directly — no terminal needed
     let _ = Command::new(project_switch)
-        .args(["list", "--gui"])
+        .args(["list", "--gui", "--monitor", &monitor_arg])
         .spawn();
 }

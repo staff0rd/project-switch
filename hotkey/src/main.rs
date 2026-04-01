@@ -9,7 +9,7 @@ use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
 };
-use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem};
+use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, Submenu};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::TrayIconBuilder;
@@ -64,6 +64,21 @@ fn main() {
         let _ = proxy.send_event(UserEvent::Menu(event));
     }));
 
+    // Build monitor submenu from available monitors
+    let monitor_count = event_loop.available_monitors().count().max(1);
+    let saved_monitor = config::read_monitor_index();
+    let monitor_submenu = Submenu::new("Monitor", true);
+    let mut monitor_items: Vec<CheckMenuItem> = Vec::new();
+    for i in 1..=monitor_count {
+        let label = format!("Monitor {i}");
+        let checked = i as u32 == saved_monitor;
+        let item = CheckMenuItem::new(&label, true, checked, None);
+        monitor_submenu
+            .append(&item)
+            .expect("Failed to add monitor item");
+        monitor_items.push(item);
+    }
+
     // Build context menu
     let menu = Menu::new();
     let open_item = MenuItem::new("Open", true, None);
@@ -75,9 +90,12 @@ fn main() {
     let exit_id = exit_item.id().clone();
     menu.append(&open_item).expect("Failed to add menu item");
     menu.append(&shortcuts_item).expect("Failed to add menu item");
+    menu.append(&monitor_submenu)
+        .expect("Failed to add menu item");
     menu.append(&exit_item).expect("Failed to add menu item");
 
     let mut tray_icon = None;
+    let mut current_monitor = saved_monitor;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -114,19 +132,35 @@ fn main() {
 
             Event::UserEvent(UserEvent::Hotkey(event)) => {
                 if event.id() == hotkey.id() && event.state == HotKeyState::Pressed {
-                    platform::launch_project_switch(&project_switch);
+                    platform::launch_project_switch(&project_switch, current_monitor);
                 }
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
                 if event.id() == &open_id {
-                    platform::launch_project_switch(&project_switch);
+                    platform::launch_project_switch(&project_switch, current_monitor);
                 } else if event.id() == &shortcuts_id {
                     let new_value = config::toggle_shortcuts_enabled();
                     shortcuts_item.set_checked(new_value);
                 } else if event.id() == &exit_id {
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
+                } else {
+                    for (i, item) in monitor_items.iter().enumerate() {
+                        if event.id() == item.id() {
+                            let index = (i + 1) as u32;
+                            config::write_monitor_index(index);
+                            current_monitor = index;
+                            for (j, other) in monitor_items.iter().enumerate() {
+                                other.set_checked(j == i);
+                            }
+                            platform::launch_project_switch(
+                                &project_switch,
+                                index,
+                            );
+                            break;
+                        }
+                    }
                 }
             }
 

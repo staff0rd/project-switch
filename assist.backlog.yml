@@ -242,7 +242,8 @@
       phase: 1
       timestamp: 2026-04-01T09:44:41.432Z
       type: summary
-- type: story
+- id: 9
+  type: story
   name: Monitor selection for hotkey launcher
   description: Add a "Monitor" submenu to the hotkey system tray context menu that lists connected monitors. Selecting a monitor persists the choice and immediately shows the launcher window on that monitor. The selection is passed as a --monitor CLI arg to project-switch list --gui.
   acceptanceCriteria:
@@ -270,5 +271,20 @@
           verify: cargo check
         - task: "Replace centered: true with calculated position to center on the target monitor"
           verify: cargo check
-  id: 9
-  status: todo
+  currentPhase: 2
+  status: in-progress
+  comments:
+    - text: "Phase 1: Added Monitor submenu to hotkey tray menu. Enumerates monitors via tao, persists selection to ~/.project-switch.yml, updates checkmarks on selection, and passes --monitor N to project-switch list --gui. Extracted load_config_doc/save_config_doc helpers to eliminate duplication."
+      timestamp: 2026-04-01T09:50:16.600Z
+      type: comment
+    - text: "Added Monitor submenu to hotkey tray context menu: enumerates connected monitors via tao, builds CheckMenuItem submenu, persists selection to ~/.project-switch.yml, passes --monitor N arg to project-switch list --gui. Extracted shared config helpers to eliminate duplication."
+      phase: 0
+      timestamp: 2026-04-01T09:50:23.110Z
+      type: summary
+    - text: "Phase 2 complete: added --monitor N CLI arg to list subcommand, threaded through to launcher_options/execute_gui, and replaced centered:true with Win32 EnumDisplayMonitors-based positioning that centers the window on the Nth monitor (sorted left-to-right). Falls back to centered:true when no monitor specified or on non-Windows."
+      timestamp: 2026-04-01T09:55:12.087Z
+      type: comment
+    - text: Added --monitor N CLI arg to list subcommand. Threads monitor value through execute_gui to launcher_options. On Windows, enumerates monitors via EnumDisplayMonitors/GetMonitorInfoW, sorts left-to-right, and centers the 700x500 window on the target monitor using with_position. Falls back to centered:true when --monitor is omitted or on non-Windows.
+      phase: 1
+      timestamp: 2026-04-01T09:55:20.820Z
+      type: summary

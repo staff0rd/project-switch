@@ -74,12 +74,14 @@ pub fn kill_existing_hotkey_instances() {
         .status();
 }
 
-pub fn launch_project_switch(project_switch: &Path) {
+pub fn launch_project_switch(project_switch: &Path, monitor: u32) {
     use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+
+    let monitor_arg = monitor.to_string();
 
     // Launch the new instance first so the window appears immediately.
     let child = match Command::new(project_switch)
-        .args(["list", "--gui"])
+        .args(["list", "--gui", "--monitor", &monitor_arg])
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
