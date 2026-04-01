@@ -214,3 +214,18 @@
       phase: 2
       timestamp: 2026-03-31T08:15:21.232Z
       type: summary
+- type: bug
+  name: List selection ignores arrow-key position and always opens first item
+  description: |-
+    **Repro:**
+    1. Run `project-switch list`
+    2. Arrow down to any item other than the first
+    3. Press Enter
+
+    **Expected:** The highlighted/selected item opens.
+
+    **Actual:** The first item in the list opens regardless of selection.
+  acceptanceCriteria:
+    - Pressing Enter after arrowing down opens the item currently highlighted, not the first item
+  id: 8
+  status: todo
