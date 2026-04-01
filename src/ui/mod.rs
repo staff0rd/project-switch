@@ -6,23 +6,24 @@ pub mod window;
 pub use state::WindowState;
 pub use window::LauncherApp;
 
+pub const WINDOW_SIZE: [f32; 2] = [700.0, 500.0];
+
 /// Standard eframe options for the launcher window.
 pub fn launcher_options(visible: bool, monitor: Option<u32>) -> eframe::NativeOptions {
-    let window_size = [700.0_f32, 500.0];
-    let position = resolve_monitor_position(monitor, window_size);
-
     let mut viewport = eframe::egui::ViewportBuilder::default()
-        .with_inner_size(window_size)
+        .with_inner_size(WINDOW_SIZE)
         .with_decorations(false)
         .with_always_on_top()
         .with_visible(visible);
 
-    if let Some(pos) = position {
-        viewport = viewport.with_position(pos);
+    // When targeting a specific monitor, start the window off-screen so it
+    // doesn't flash on the primary display; LauncherApp repositions on frame 1.
+    if monitor.is_some() {
+        viewport = viewport.with_position(eframe::egui::pos2(-32000.0, -32000.0));
     }
 
     eframe::NativeOptions {
-        centered: position.is_none(),
+        centered: visible && monitor.is_none(),
         viewport,
         #[cfg(target_os = "macos")]
         event_loop_builder: Some(Box::new(|builder| {
@@ -33,11 +34,12 @@ pub fn launcher_options(visible: bool, monitor: Option<u32>) -> eframe::NativeOp
     }
 }
 
+/// Return the physical-pixel rect `[left, top, width, height, dpi]` for the
+/// Nth monitor (1-based, sorted left-to-right).  Must be called **after**
+/// eframe has initialised (i.e. inside `App::update`) so the process is
+/// DPI-aware and coordinates are in true physical pixels.
 #[cfg(windows)]
-fn resolve_monitor_position(
-    monitor: Option<u32>,
-    window_size: [f32; 2],
-) -> Option<eframe::egui::Pos2> {
+pub fn monitor_physical_rect(n: u32) -> Option<[i32; 5]> {
     use std::mem;
     use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::{
@@ -45,8 +47,7 @@ fn resolve_monitor_position(
     };
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
-    // left, top, width, height (physical pixels), dpi
-    type MonitorEntry = [i32; 5];
+    type Entry = [i32; 5];
 
     unsafe extern "system" fn callback(
         hmonitor: HMONITOR,
@@ -54,7 +55,7 @@ fn resolve_monitor_position(
         _rect: *mut RECT,
         data: LPARAM,
     ) -> BOOL {
-        let monitors = &mut *(data.0 as *mut Vec<MonitorEntry>);
+        let monitors = &mut *(data.0 as *mut Vec<Entry>);
         let mut info = MONITORINFO {
             cbSize: mem::size_of::<MONITORINFO>() as u32,
             ..mem::zeroed()
@@ -75,8 +76,7 @@ fn resolve_monitor_position(
         BOOL(1)
     }
 
-    let n = monitor?;
-    let mut monitors: Vec<MonitorEntry> = Vec::new();
+    let mut monitors: Vec<Entry> = Vec::new();
     unsafe {
         let _ = EnumDisplayMonitors(
             HDC::default(),
@@ -85,27 +85,12 @@ fn resolve_monitor_position(
             LPARAM(&mut monitors as *mut _ as isize),
         );
     }
-    // Sort left-to-right so Monitor 1 = leftmost
     monitors.sort_by_key(|m| m[0]);
-
-    let m = monitors.get((n.saturating_sub(1)) as usize)?;
-    let scale = m[4] as f32 / 96.0;
-
-    // GetMonitorInfoW returns physical pixel coordinates; eframe expects logical.
-    // Convert physical monitor center to logical, then offset by half the logical window size.
-    let center_x = m[0] as f32 + m[2] as f32 / 2.0;
-    let center_y = m[1] as f32 + m[3] as f32 / 2.0;
-    Some(eframe::egui::Pos2::new(
-        center_x / scale - window_size[0] / 2.0,
-        center_y / scale - window_size[1] / 2.0,
-    ))
+    monitors.get((n.saturating_sub(1)) as usize).copied()
 }
 
 #[cfg(not(windows))]
-fn resolve_monitor_position(
-    _monitor: Option<u32>,
-    _window_size: [f32; 2],
-) -> Option<eframe::egui::Pos2> {
+pub fn monitor_physical_rect(_n: u32) -> Option<[i32; 5]> {
     None
 }
 

@@ -69,6 +69,8 @@ pub struct Config {
     pub global: Option<Vec<ProjectCommand>>,
     #[serde(default)]
     pub shortcuts: Option<ShortcutsConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub projects: Vec<Project>,
 }
@@ -99,6 +101,7 @@ fn merge_configs(base: Config, overlay: Config) -> Config {
         } else {
             base.shortcuts
         },
+        monitor: overlay.monitor.or(base.monitor),
         projects: merge_project_lists(base.projects, overlay.projects),
     }
 }
@@ -308,6 +311,7 @@ impl ConfigManager {
                 default_browser: self.config.default_browser.clone(),
                 global: self.config.global.clone(),
                 shortcuts: self.config.shortcuts.clone(),
+                monitor: self.config.monitor,
                 projects: self.local_projects.clone(),
             };
             serde_yaml::to_value(&local_config).context("Failed to serialize config")?

@@ -272,7 +272,7 @@
         - task: "Replace centered: true with calculated position to center on the target monitor"
           verify: cargo check
   currentPhase: 2
-  status: in-progress
+  status: done
   comments:
     - text: "Phase 1: Added Monitor submenu to hotkey tray menu. Enumerates monitors via tao, persists selection to ~/.project-switch.yml, updates checkmarks on selection, and passes --monitor N to project-switch list --gui. Extracted load_config_doc/save_config_doc helpers to eliminate duplication."
       timestamp: 2026-04-01T09:50:16.600Z
@@ -288,7 +288,12 @@
       phase: 1
       timestamp: 2026-04-01T09:55:20.820Z
       type: summary
-- type: story
+    - text: Added Monitor submenu to hotkey tray menu with persist-to-config selection. Passes --monitor N to project-switch list --gui which centers the window on the Nth monitor using DPI-aware Win32 EnumDisplayMonitors positioning. Fixed config parsing crash (deny_unknown_fields) and eliminated window flash via off-screen initial placement.
+      phase: 2
+      timestamp: 2026-04-01T11:35:25.601Z
+      type: summary
+- id: 10
+  type: story
   name: Surface config errors in GUI mode and log file
   description: When project-switch list --gui fails (e.g. bad config), the error is printed to stderr which is invisible because the hotkey daemon spawns the process with CREATE_NO_WINDOW. Add a log file that always captures errors, and show a native message box when in --gui mode.
   acceptanceCriteria:
@@ -308,5 +313,4 @@
           verify: assist verify
         - task: Remove the Press Enter to exit prompt when in --gui mode
           verify: assist verify
-  id: 10
   status: todo

@@ -386,6 +386,7 @@ pub fn execute_gui(monitor: Option<u32>) -> Result<()> {
                 state,
                 display_name,
                 shortcut_rx,
+                monitor,
             )))
         }),
     )
