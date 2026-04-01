@@ -214,7 +214,8 @@
       phase: 2
       timestamp: 2026-03-31T08:15:21.232Z
       type: summary
-- type: bug
+- id: 8
+  type: bug
   name: List selection ignores arrow-key position and always opens first item
   description: |-
     **Repro:**
@@ -227,5 +228,47 @@
     **Actual:** The first item in the list opens regardless of selection.
   acceptanceCriteria:
     - Pressing Enter after arrowing down opens the item currently highlighted, not the first item
-  id: 8
+  currentPhase: 1
+  status: done
+  comments:
+    - text: "Root cause: execute_and_hide() always passed state.input (text field) to execute_action, ignoring the selected index. Fixed by extracting the highlighted item's key from filtered_entries[selected] and passing that instead."
+      timestamp: 2026-04-01T09:43:50.753Z
+      type: comment
+    - text: Fixed execute_and_hide to use the selected item's key instead of the raw text input. When Enter is pressed, the highlighted entry's key is now extracted from filtered_entries[selected] and passed to execute_action.
+      phase: 0
+      timestamp: 2026-04-01T09:43:56.655Z
+      type: summary
+    - text: "Fixed list selection: Enter now opens the highlighted item instead of always opening the first item. Changed execute_and_hide to accept an explicit action_input parameter resolved from entries[selected]."
+      phase: 1
+      timestamp: 2026-04-01T09:44:41.432Z
+      type: summary
+- type: story
+  name: Monitor selection for hotkey launcher
+  description: Add a "Monitor" submenu to the hotkey system tray context menu that lists connected monitors. Selecting a monitor persists the choice and immediately shows the launcher window on that monitor. The selection is passed as a --monitor CLI arg to project-switch list --gui.
+  acceptanceCriteria:
+    - Tray context menu has a "Monitor" submenu listing connected monitors (Monitor 1, Monitor 2, etc.)
+    - Selected monitor has a checkmark; defaults to Monitor 1
+    - Selection persists to ~/.project-switch.yml across restarts
+    - Selecting a different monitor immediately launches the window on that monitor
+    - project-switch list --gui --monitor N positions the window centered on monitor N
+  plan:
+    - name: Hotkey crate — monitor submenu and config
+      tasks:
+        - task: Add monitor index read/write to hotkey config.rs (persist to ~/.project-switch.yml)
+          verify: cargo check in hotkey/
+        - task: Enumerate monitors via tao and build a Monitor submenu with CheckMenuItems
+          verify: cargo check in hotkey/
+        - task: "Handle menu events: update config, update checkmarks, and immediately launch project-switch on the selected monitor"
+          verify: cargo check in hotkey/
+        - task: Pass --monitor N arg in launch_project_switch
+          verify: cargo check in hotkey/
+    - name: Main binary — accept --monitor and position window
+      tasks:
+        - task: Add --monitor CLI arg to the list subcommand
+          verify: cargo check
+        - task: Thread the monitor value through to launcher_options / execute_gui
+          verify: cargo check
+        - task: "Replace centered: true with calculated position to center on the target monitor"
+          verify: cargo check
+  id: 9
   status: todo
