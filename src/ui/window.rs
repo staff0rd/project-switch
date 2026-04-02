@@ -216,11 +216,7 @@ pub fn render_launcher(
                 let selected = state.selected;
 
                 if key_enter && !entries.is_empty() && selected < entries.len() {
-                    let action_input = match &entries[selected] {
-                        FilteredEntry::Item(item) => item.key.clone(),
-                        _ => state.input.clone(),
-                    };
-                    execute_and_hide(state, &action_input);
+                    execute_and_hide(state, &state.input.clone());
                     return;
                 }
                 if key_enter && entries.is_empty() && crate::utils::url::is_url(&state.input) {

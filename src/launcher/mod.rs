@@ -646,6 +646,20 @@ mod tests {
         assert_eq!(args, Some("staff0rd/repo".to_string()));
     }
 
+    /// Regression test for backlog #11: short key with args must preserve args.
+    #[test]
+    fn resolve_item_short_key_with_url_args() {
+        let mut items = sample_items();
+        items.push(ListItem {
+            key: "g".to_string(),
+            display_detail: "https://google.com/search?q=".to_string(),
+            kind: ListItemKind::Command,
+        });
+        let (item, args) = resolve_item(&items, "g some text").unwrap();
+        assert_eq!(item.key, "g");
+        assert_eq!(args, Some("some text".to_string()));
+    }
+
     #[test]
     fn resolve_item_multi_word_key() {
         let items = sample_items();

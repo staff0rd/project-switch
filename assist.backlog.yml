@@ -334,7 +334,8 @@
       phase: 2
       timestamp: 2026-04-02T00:06:34.035Z
       type: summary
-- type: bug
+- id: 11
+  type: bug
   name: GUI launcher drops user args for URL commands
   description: |-
     **Repro:**
@@ -348,5 +349,17 @@
   acceptanceCriteria:
     - When a user types <key> <args> in the GUI launcher and presses Enter, the args are appended to the configured URL
     - Regression tests confirm args are preserved through the GUI code path for URL commands
-  id: 11
-  status: todo
+  currentPhase: 1
+  status: done
+  comments:
+    - text: "Fix: window.rs execute_and_hide now receives state.input (full user text) instead of item.key (just the matched key). Added regression tests in state.rs and launcher/mod.rs."
+      timestamp: 2026-04-02T00:25:10.024Z
+      type: comment
+    - text: Fixed GUI launcher dropping user args for URL commands. Changed execute_and_hide call in window.rs to pass full state.input instead of just item.key. Added regression tests in state.rs and launcher/mod.rs confirming args are preserved through the GUI code path.
+      phase: 0
+      timestamp: 2026-04-02T00:25:15.684Z
+      type: summary
+    - text: GUI launcher now passes full user input (key + args) to execute_action instead of just the selected item key. filter_items uses exact key match when input contains a space. Regression tests cover args preservation through filtering, state, resolution, and URL encoding.
+      phase: 1
+      timestamp: 2026-04-02T00:53:58.939Z
+      type: summary

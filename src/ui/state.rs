@@ -690,6 +690,35 @@ mod tests {
         assert_eq!(entries[0], FilteredEntry::Item(make_item("github")));
     }
 
+    // --- Input with args preserves full text (regression: backlog #11) ---
+
+    /// When a user types "g some text", the GUI must filter to the "g" item
+    /// while preserving the full input so execute_action receives the args.
+    #[test]
+    fn input_with_args_filters_and_preserves_full_input() {
+        let mut items = sample_items();
+        items.push(ListItem {
+            key: "g".to_string(),
+            display_detail: "https://google.com/search?q=".to_string(),
+            kind: ListItemKind::Command,
+        });
+        let mut state = WindowState::new(items, vec![]);
+        state.show();
+        state.set_input("g some text".to_string());
+        let entries = state.filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0],
+            FilteredEntry::Item(ListItem {
+                key: "g".to_string(),
+                display_detail: "https://google.com/search?q=".to_string(),
+                kind: ListItemKind::Command,
+            })
+        );
+        // The full input (key + args) must be available for execute_action
+        assert_eq!(state.input, "g some text");
+    }
+
     #[test]
     fn entries_selecting_expression_switches_to_calculator_mode() {
         let mut state = WindowState::new(sample_items(), vec!["=5+3".to_string()]);
