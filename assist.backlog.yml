@@ -334,3 +334,19 @@
       phase: 2
       timestamp: 2026-04-02T00:06:34.035Z
       type: summary
+- type: bug
+  name: GUI launcher drops user args for URL commands
+  description: |-
+    **Repro:**
+    1. Configure a URL command (e.g. `g` → `https://google.com/search?q=`)
+    2. Open the GUI launcher (ALT+SPACE)
+    3. Type `g some text` and press Enter
+
+    **Expected:** Browser opens `https://google.com/search?q=some%20text`
+
+    **Actual:** Browser opens `https://google.com/search?q=` with no query — `execute_and_hide` passes only the selected item's key to `execute_action()`, discarding the user's args.
+  acceptanceCriteria:
+    - When a user types <key> <args> in the GUI launcher and presses Enter, the args are appended to the configured URL
+    - Regression tests confirm args are preserved through the GUI code path for URL commands
+  id: 11
+  status: todo
