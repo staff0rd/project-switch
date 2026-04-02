@@ -50,6 +50,7 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
+    let gui_mode = matches!(&cli.command, Some(Commands::List { gui: true, .. }));
 
     let result = match cli.command {
         // No subcommand: start the daemon (hotkey + tray + GUI)
@@ -73,9 +74,41 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("\nError: {e:#}");
-        eprint!("\nPress Enter to exit...");
-        let _ = std::io::stdin().read_line(&mut String::new());
+        let msg = format!("{e:#}");
+        utils::log::append_error(&msg);
+
+        if gui_mode {
+            show_error_dialog(&msg);
+        } else {
+            eprintln!("\nError: {msg}");
+            eprint!("\nPress Enter to exit...");
+            let _ = std::io::stdin().read_line(&mut String::new());
+        }
         std::process::exit(1);
     }
+}
+
+#[cfg(windows)]
+fn show_error_dialog(msg: &str) {
+    use windows::core::HSTRING;
+    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONERROR, MB_YESNO};
+
+    let title = HSTRING::from("project-switch");
+    let text = HSTRING::from(format!("Error: {msg}\n\nOpen config file in editor?"));
+    unsafe {
+        let result = MessageBoxW(None, &text, &title, MB_ICONERROR | MB_YESNO);
+        if result == IDYES {
+            if let Some(path) = dirs::home_dir().map(|h| h.join(".project-switch.yml")) {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/c", "code"])
+                    .arg(path)
+                    .spawn();
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn show_error_dialog(msg: &str) {
+    eprintln!("\nError: {msg}");
 }

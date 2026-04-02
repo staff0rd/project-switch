@@ -313,4 +313,24 @@
           verify: assist verify
         - task: Remove the Press Enter to exit prompt when in --gui mode
           verify: assist verify
-  status: todo
+  currentPhase: 2
+  status: done
+  comments:
+    - text: Added log::append_error() in src/utils/log.rs — writes timestamped error lines to ~/.project-switch.log with 64KB truncation. Called from main() error handler for all error paths.
+      phase: 0
+      timestamp: 2026-04-01T22:49:17.681Z
+      type: summary
+    - text: "Phase 2: GUI errors now show a native MessageBoxW dialog on Windows when --gui is active. Non-Windows falls back to eprintln. Press Enter prompt is skipped in GUI mode."
+      timestamp: 2026-04-01T22:51:25.725Z
+      type: comment
+    - text: Added MessageBoxW error dialog for --gui mode on Windows with eprintln fallback on other platforms. Removed Press Enter prompt in GUI mode.
+      phase: 1
+      timestamp: 2026-04-01T22:51:31.125Z
+      type: summary
+    - text: Added 'Open config file in editor?' Yes/No button to GUI error dialog. Clicking Yes opens ~/.project-switch.yml in VS Code via cmd /c code.
+      timestamp: 2026-04-02T00:06:28.545Z
+      type: comment
+    - text: Errors logged to ~/.project-switch.log with timestamps (64KB cap). GUI mode shows MessageBoxW with Yes/No to open config in VS Code. Non-GUI mode prints to stderr with Press Enter prompt.
+      phase: 2
+      timestamp: 2026-04-02T00:06:34.035Z
+      type: summary
