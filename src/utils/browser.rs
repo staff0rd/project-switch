@@ -24,45 +24,38 @@ fn run_terminal_command(command: &str, args: Option<&str>, debug: bool) -> Resul
         }
     }
 
-    let cmd_result = if cfg!(target_os = "windows") {
+    let args_str = args
+        .filter(|s| !s.is_empty())
+        .map(|a| format!(" {}", a))
+        .unwrap_or_default();
+
+    if cfg!(target_os = "windows") {
         if debug {
-            println!(
-                "{}",
-                format!("[debug] wt -- cmd /c {}", full_command).dimmed()
-            );
+            println!("{}", format!("[debug] cmd /c {}", full_command).dimmed());
         }
-        // Launch in Windows Terminal so interactive commands have a console
-        let cmd_line = format!("{} & exit /b 0", full_command);
-        Command::new("wt.exe")
-            .args(["--", "cmd", "/c", &cmd_line])
-            .status()
+        // Spawn via cmd so PATH and .cmd scripts are resolved; don't wait.
+        Command::new("cmd")
+            .args(["/c", &full_command])
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("Error running command: {}", e))?;
     } else {
         if debug {
             println!("{}", format!("[debug] sh -c {}", full_command).dimmed());
         }
-        Command::new("sh").args(["-c", &full_command]).status()
-    };
-
-    match cmd_result {
-        Ok(status) => {
-            let args_str = args
-                .filter(|s| !s.is_empty())
-                .map(|a| format!(" {}", a))
-                .unwrap_or_default();
-            if status.success() {
-                println!(
-                    "{}",
-                    format!("Running command: {}{}", command, args_str).green()
-                );
-            } else {
-                anyhow::bail!("Command failed: {}{}", command, args_str);
-            }
-            Ok(())
-        }
-        Err(e) => {
-            anyhow::bail!("Error running command: {}", e);
+        let status = Command::new("sh")
+            .args(["-c", &full_command])
+            .status()
+            .map_err(|e| anyhow::anyhow!("Error running command: {}", e))?;
+        if !status.success() {
+            anyhow::bail!("Command failed: {}{}", command, args_str);
         }
     }
+
+    println!(
+        "{}",
+        format!("Running command: {}{}", command, args_str).green()
+    );
+    Ok(())
 }
 
 pub fn launch_shortcut(path: &str, debug: bool) -> Result<()> {
