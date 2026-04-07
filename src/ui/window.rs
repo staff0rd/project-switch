@@ -216,7 +216,9 @@ pub fn render_launcher(
                 let selected = state.selected;
 
                 if key_enter && !entries.is_empty() && selected < entries.len() {
-                    execute_and_hide(state, &state.input.clone());
+                    if let Some(action) = state.selected_action_input() {
+                        execute_and_hide(state, &action);
+                    }
                     return;
                 }
                 if key_enter && entries.is_empty() && crate::utils::url::is_url(&state.input) {

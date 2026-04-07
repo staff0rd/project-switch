@@ -241,6 +241,28 @@ impl WindowState {
         self.update_filtered_count();
     }
 
+    /// Return the action input string for the currently selected Item entry.
+    /// Preserves user-typed args when the first word matches the item key exactly.
+    /// Returns `None` when the selection is empty, out-of-bounds, or a non-Item entry
+    /// (Expression/Path are handled separately by the caller).
+    pub fn selected_action_input(&self) -> Option<String> {
+        let entries = self.filtered_entries();
+        if entries.is_empty() || self.selected >= entries.len() {
+            return None;
+        }
+        match &entries[self.selected] {
+            FilteredEntry::Item(item) => {
+                let keyword = self.input.split_whitespace().next().unwrap_or("");
+                if keyword.eq_ignore_ascii_case(&item.key) {
+                    Some(self.input.clone())
+                } else {
+                    Some(item.key.clone())
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Append additional items (e.g., shortcuts loaded asynchronously).
     /// Preserves the current input and selection.
     pub fn append_items(&mut self, new_items: Vec<ListItem>) {
@@ -268,6 +290,17 @@ mod tests {
 
     fn sample_items() -> Vec<ListItem> {
         vec![make_item("github"), make_item("jira"), make_item("slack")]
+    }
+
+    /// Sample items plus a single-letter "g" command (used by args tests).
+    fn sample_items_with_g() -> Vec<ListItem> {
+        let mut items = sample_items();
+        items.push(ListItem {
+            key: "g".to_string(),
+            display_detail: "https://google.com/search?q=".to_string(),
+            kind: ListItemKind::Command,
+        });
+        items
     }
 
     // --- Visibility states ---
@@ -696,13 +729,7 @@ mod tests {
     /// while preserving the full input so execute_action receives the args.
     #[test]
     fn input_with_args_filters_and_preserves_full_input() {
-        let mut items = sample_items();
-        items.push(ListItem {
-            key: "g".to_string(),
-            display_detail: "https://google.com/search?q=".to_string(),
-            kind: ListItemKind::Command,
-        });
-        let mut state = WindowState::new(items, vec![]);
+        let mut state = WindowState::new(sample_items_with_g(), vec![]);
         state.show();
         state.set_input("g some text".to_string());
         let entries = state.filtered_entries();
@@ -717,6 +744,67 @@ mod tests {
         );
         // The full input (key + args) must be available for execute_action
         assert_eq!(state.input, "g some text");
+    }
+
+    // --- selected_action_input (regression: backlog #12) ---
+
+    /// Pressing Enter after arrowing down must open the highlighted item,
+    /// not the first item. This was broken because the GUI passed raw input
+    /// text to resolve_item instead of using the selected entry's key.
+    #[test]
+    fn selected_action_input_uses_highlighted_item() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        // Arrow down once — "jira" is second in [github, jira, slack]
+        state.navigate_down();
+        let action = state.selected_action_input().unwrap();
+        assert_eq!(action, "jira");
+    }
+
+    #[test]
+    fn selected_action_input_first_item_without_navigation() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        let action = state.selected_action_input().unwrap();
+        assert_eq!(action, "github");
+    }
+
+    #[test]
+    fn selected_action_input_preserves_args() {
+        let mut state = WindowState::new(sample_items_with_g(), vec![]);
+        state.show();
+        state.set_input("g some text".to_string());
+        let action = state.selected_action_input().unwrap();
+        assert_eq!(action, "g some text");
+    }
+
+    #[test]
+    fn selected_action_input_partial_filter_uses_key() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.set_input("ji".to_string());
+        // "ji" partially matches "jira" — action should be the key, not "ji"
+        let action = state.selected_action_input().unwrap();
+        assert_eq!(action, "jira");
+    }
+
+    #[test]
+    fn selected_action_input_empty_list_returns_none() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.set_input("nonexistent".to_string());
+        assert!(state.selected_action_input().is_none());
+    }
+
+    #[test]
+    fn selected_action_input_recent_item_uses_key() {
+        let recents = vec!["slack".to_string(), "jira".to_string()];
+        let mut state = WindowState::new(sample_items(), recents);
+        state.show();
+        // Input is empty, recents shown: [slack, jira]
+        state.navigate_down(); // select "jira"
+        let action = state.selected_action_input().unwrap();
+        assert_eq!(action, "jira");
     }
 
     #[test]
