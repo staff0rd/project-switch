@@ -5,3 +5,6 @@ bin/
 .DS_Store
 node_modules
 screenshots/
+.claude/settings.local.json
+.assist-*
+.assist/*.db*
