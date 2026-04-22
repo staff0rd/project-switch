@@ -83,10 +83,7 @@ fn load_items() -> (Vec<ListItem>, String) {
         Err(_) => return (Vec::new(), "global".to_string()),
     };
 
-    let display_name = config_manager
-        .resolve_current_project()
-        .map(|(name, _)| name.clone())
-        .unwrap_or_else(|| "global".to_string());
+    let display_name = crate::commands::list::selection_display_name(&config_manager);
 
     let (_, items) = crate::commands::list::load_items(&config_manager);
     (items, display_name)
@@ -94,7 +91,7 @@ fn load_items() -> (Vec<ListItem>, String) {
 
 struct DaemonApp {
     state: WindowState,
-    project_name: String,
+    client_name: String,
     prev_input: String,
     #[cfg(any(windows, target_os = "macos"))]
     _hotkey_manager: GlobalHotKeyManager,
@@ -114,7 +111,7 @@ impl eframe::App for DaemonApp {
                 let (items, name) = load_items();
                 self.state.set_items(items);
                 self.state.set_recent_keys(crate::history::load());
-                self.project_name = name;
+                self.client_name = name;
             }
         }
 
@@ -126,7 +123,7 @@ impl eframe::App for DaemonApp {
                 let (items, name) = load_items();
                 self.state.set_items(items);
                 self.state.set_recent_keys(crate::history::load());
-                self.project_name = name;
+                self.client_name = name;
             } else if event.id() == self.menu_ids.exit.id() {
                 std::process::exit(0);
             } else if event.id() == self.menu_ids.shortcuts.id() {
@@ -157,7 +154,7 @@ impl eframe::App for DaemonApp {
         crate::ui::window::render_launcher(
             ctx,
             &mut self.state,
-            &self.project_name,
+            &self.client_name,
             &mut self.prev_input,
         );
     }
@@ -192,7 +189,7 @@ pub fn run() -> Result<()> {
 
             Ok(Box::new(DaemonApp {
                 state,
-                project_name: display_name,
+                client_name: display_name,
                 prev_input: String::new(),
                 #[cfg(any(windows, target_os = "macos"))]
                 _hotkey_manager: hotkey_manager,

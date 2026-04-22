@@ -1,4 +1,5 @@
-currentProject: myapp
+currentClient: myapp
+currentProject: web  # Optional nested project within the current client
 defaultBrowser: firefox  # Global default browser
 
 # Windows Desktop/Start Menu shortcut indexing
@@ -9,21 +10,21 @@ shortcuts:
   exclude:       # Glob patterns to exclude (* at start/end for wildcard)
     - "Uninstall *"
 
-projects:
+clients:
   - name: myapp
     path: /home/user/projects/myapp
     description: My main application
-    browser: chrome  # Project-level browser (overrides global default)
+    browser: chrome  # Client-level browser (overrides global default)
     commands:
       - key: docs
         url: https://docs.myapp.com
-        # Uses project browser (chrome)
+        # Uses client browser (chrome)
       - key: staging
         url: https://staging.myapp.com
-        browser: edge  # Command-level browser (overrides project and global)
+        browser: edge  # Command-level browser (overrides client and global)
       - key: prod
         url: https://app.myapp.com
-        # Uses project browser (chrome)
+        # Uses client browser (chrome)
       - key: github
         url: https://github.com/user/myapp
         browser: firefox  # Command-level browser
@@ -32,10 +33,25 @@ projects:
       - key: logs
         command: Get-Content -Tail 50 -Wait logs/app.log
         args: -ErrorAction SilentlyContinue  # Extra args appended to the command
+    projects:
+      - name: web
+        description: The web frontend
+        commands:
+          - key: prod   # Overrides the client-level 'prod' command when this project is active
+            url: https://web.myapp.com
+          - key: repo
+            url: https://github.com/user/myapp-web
+      - name: api
+        description: The backend service
+        commands:
+          - key: prod
+            url: https://api.myapp.com
+          - key: repo
+            url: https://github.com/user/myapp-api
   - name: website
     path: /home/user/projects/website
     description: Company website
-    # No project-level browser, uses global default (firefox)
+    # No client-level browser, uses global default (firefox)
     commands:
       - key: dev
         url: http://localhost:3000

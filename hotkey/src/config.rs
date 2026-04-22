@@ -48,7 +48,7 @@ pub fn create_if_missing() {
         None => return,
     };
     if !path.exists() {
-        let _ = fs::write(&path, "projects: []\n");
+        let _ = fs::write(&path, "clients: []\n");
     }
 }
 

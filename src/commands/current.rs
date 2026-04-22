@@ -5,13 +5,30 @@ use colored::*;
 pub fn execute() -> Result<()> {
     let config_manager = ConfigManager::new()?;
 
-    if let Some(current_project) = config_manager.get_current_project() {
-        println!(
-            "{}",
-            format!("Current project: {}", current_project).green()
-        );
-    } else {
-        println!("{}", "No current project selected".yellow());
+    match config_manager.resolve_current() {
+        Some((client_name, _, Some((project_name, _)))) => {
+            println!(
+                "{}",
+                format!("Current: {} / {}", client_name, project_name).green()
+            );
+        }
+        Some((client_name, _, None)) => {
+            println!("{}", format!("Current client: {}", client_name).green());
+        }
+        None => {
+            if let Some(current_client) = config_manager.get_current_client() {
+                println!(
+                    "{}",
+                    format!(
+                        "Current client '{}' is set but not found in config",
+                        current_client
+                    )
+                    .yellow()
+                );
+            } else {
+                println!("{}", "No current client selected".yellow());
+            }
+        }
     }
 
     Ok(())

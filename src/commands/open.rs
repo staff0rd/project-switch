@@ -9,8 +9,8 @@ use anyhow::Result;
 pub fn execute(key: &str) -> Result<()> {
     let config_manager = ConfigManager::new()?;
 
-    // No project configured - check if input is a URL as fallback
-    if config_manager.resolve_current_project().is_none() && is_url(key) {
+    // No client configured - check if input is a URL as fallback
+    if config_manager.resolve_current_client().is_none() && is_url(key) {
         let url = if key.starts_with("http://") || key.starts_with("https://") {
             key.to_string()
         } else {
@@ -19,10 +19,16 @@ pub fn execute(key: &str) -> Result<()> {
         return browser::open_url_in_browser(&url, config_manager.get_default_browser(), false);
     }
 
-    let (current_project_name, project) = config_manager.resolve_current_project()
-        .ok_or_else(|| anyhow::anyhow!("No current project selected. Use \"project-switch switch\" to select a project first"))?;
+    let (current_client_name, client, project) = config_manager.resolve_current()
+        .ok_or_else(|| anyhow::anyhow!("No current client selected. Use \"project-switch switch\" to select a client first"))?;
 
-    let command = match config_manager.get_project_command(current_project_name, key) {
+    // Browser inheritance: project > client > global default.
+    let scope_browser = project
+        .as_ref()
+        .and_then(|(_, p)| p.browser.as_deref())
+        .or(client.browser.as_deref());
+
+    let command = match config_manager.get_effective_command(key) {
         Some(cmd) => cmd,
         None => {
             // No matching command - check if it's a URL
@@ -32,16 +38,19 @@ pub fn execute(key: &str) -> Result<()> {
                 } else {
                     format!("https://{}", key)
                 };
-                let browser = project
-                    .browser
-                    .as_deref()
-                    .unwrap_or_else(|| config_manager.get_default_browser());
+                let browser = scope_browser.unwrap_or_else(|| config_manager.get_default_browser());
                 return browser::open_url_in_browser(&url, browser, false);
             }
+            let scope = match &project {
+                Some((pname, _)) => {
+                    format!("project '{}' in client '{}'", pname, current_client_name)
+                }
+                None => format!("client '{}'", current_client_name),
+            };
             anyhow::bail!(
-                "Command with key '{}' not found in project '{}' or global commands",
+                "Command with key '{}' not found in {} or global commands",
                 key,
-                current_project_name
+                scope
             );
         }
     };
@@ -51,11 +60,11 @@ pub fn execute(key: &str) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Command '{}' does not have a URL configured", key))?;
 
-    // Browser hierarchy: command > project > config > default
+    // Browser hierarchy: command > project > client > config > default
     let browser = command
         .browser
         .as_deref()
-        .or(project.browser.as_deref())
+        .or(scope_browser)
         .unwrap_or_else(|| config_manager.get_default_browser());
 
     browser::open_command_with_args(url, Some(browser), command.args.as_deref(), false)?;

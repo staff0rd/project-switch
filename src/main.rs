@@ -19,22 +19,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Switch between projects
+    /// Switch between clients
     Switch,
-    /// Add a new project
-    Add {
-        /// Project name
-        name: Option<String>,
-    },
-    /// Show the current project
+    /// Show the current client
     Current,
     #[command(hide = true)]
-    /// (Deprecated) Open a URL associated with the current project - use 'list' instead
+    /// (Deprecated) Open a URL associated with the current client - use 'list' instead
     Open {
         /// Command key
         key: String,
     },
-    /// List all openable items from the current project (interactive)
+    /// List all openable items from the current client (interactive)
     List {
         /// Print the full command and args before executing
         #[arg(long)]
@@ -56,7 +51,6 @@ fn main() {
         // No subcommand: start the daemon (hotkey + tray + GUI)
         None => hotkey::daemon::run(),
         Some(Commands::Switch) => commands::switch::execute(),
-        Some(Commands::Add { name }) => commands::add::execute(name),
         Some(Commands::Current) => commands::current::execute(),
         #[allow(deprecated)]
         Some(Commands::Open { key }) => commands::open::execute(&key),

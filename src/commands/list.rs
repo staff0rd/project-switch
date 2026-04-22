@@ -165,16 +165,32 @@ impl Autocomplete for ListAutocomplete {
     }
 }
 
+/// Label for the active selection — includes the nested project when set.
+pub fn selection_display_name(config_manager: &ConfigManager) -> String {
+    match config_manager.resolve_current() {
+        Some((client, _, Some((project, _)))) => format!("{} / {}", client, project),
+        Some((client, _, None)) => client.clone(),
+        None => "global".to_string(),
+    }
+}
+
 /// Load only command items from config (fast — no filesystem scanning).
+/// Effective command set precedence when a project is active:
+/// project > client > global.
 fn load_command_items(
     config_manager: &ConfigManager,
 ) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
-    let resolved = config_manager.resolve_current_project();
+    let resolved = config_manager.resolve_current();
 
     let mut all_commands = Vec::new();
-    if let Some((_, project)) = &resolved {
+    if let Some((_, _, Some((_, project)))) = &resolved {
         if let Some(project_commands) = &project.commands {
             all_commands.extend(project_commands.iter().cloned());
+        }
+    }
+    if let Some((_, client, _)) = &resolved {
+        if let Some(client_commands) = &client.commands {
+            all_commands.extend(client_commands.iter().cloned());
         }
     }
     if let Some(global_commands) = config_manager.get_global_commands() {
@@ -232,7 +248,13 @@ pub fn load_items(
 /// Takes the raw input text from the GUI and dispatches the appropriate action.
 pub fn execute_action(input: &str) -> Result<()> {
     let config_manager = ConfigManager::new()?;
-    let resolved = config_manager.resolve_current_project();
+    let resolved = config_manager.resolve_current();
+    let scope_browser: Option<String> = resolved.as_ref().and_then(|(_, client, project)| {
+        project
+            .as_ref()
+            .and_then(|(_, p)| p.browser.clone())
+            .or_else(|| client.browser.clone())
+    });
 
     // File path mode
     if is_file_path(input) {
@@ -283,7 +305,7 @@ pub fn execute_action(input: &str) -> Result<()> {
                         let resolved_browser = selected_command
                             .browser
                             .as_deref()
-                            .or_else(|| resolved.as_ref().and_then(|(_, p)| p.browser.as_deref()))
+                            .or(scope_browser.as_deref())
                             .or_else(|| Some(config_manager.get_default_browser()));
 
                         let effective_browser;
@@ -336,9 +358,8 @@ pub fn execute_action(input: &str) -> Result<()> {
                 } else {
                     format!("https://{}", keyword)
                 };
-                let browser_name = resolved
-                    .as_ref()
-                    .and_then(|(_, p)| p.browser.as_deref())
+                let browser_name = scope_browser
+                    .as_deref()
                     .unwrap_or_else(|| config_manager.get_default_browser());
                 return browser::open_url_in_browser(&url, browser_name, false);
             }
@@ -351,10 +372,7 @@ pub fn execute_action(input: &str) -> Result<()> {
 
 pub fn execute_gui(monitor: Option<u32>) -> Result<()> {
     let config_manager = ConfigManager::new()?;
-    let display_name = config_manager
-        .resolve_current_project()
-        .map(|(name, _)| name.clone())
-        .unwrap_or_else(|| "global".to_string());
+    let display_name = selection_display_name(&config_manager);
 
     // Load commands only (fast) — shortcuts are deferred to a background thread
     let (_, command_items) = load_command_items(&config_manager);
@@ -396,10 +414,8 @@ pub fn execute_gui(monitor: Option<u32>) -> Result<()> {
 pub fn execute(_debug: bool) -> Result<()> {
     let config_manager = ConfigManager::new()?;
 
-    let display_name = config_manager
-        .resolve_current_project()
-        .map(|(name, _)| name.as_str())
-        .unwrap_or("global");
+    let display_name_owned = selection_display_name(&config_manager);
+    let display_name = display_name_owned.as_str();
 
     let (_, all_items) = load_items(&config_manager);
 
@@ -407,15 +423,12 @@ pub fn execute(_debug: bool) -> Result<()> {
         println!(
             "{}",
             format!(
-                "No openable items found in project '{}' or global commands",
+                "No openable items found in client '{}' or global commands",
                 display_name
             )
             .yellow()
         );
-        println!(
-            "{}",
-            "Use \"project-switch add\" to add commands to your project".blue()
-        );
+        println!("{}", "Edit ~/.project-switch.yml to add commands.".blue());
         return Ok(());
     }
 

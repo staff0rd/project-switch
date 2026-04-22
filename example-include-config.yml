@@ -2,7 +2,7 @@
 # Store this in a dotfiles repo or synced folder for cross-machine sharing.
 # Machine-specific fields (path, browser, shortcuts) go in the local config.
 
-projects:
+clients:
   - name: myapp
     description: My main application
     commands:
@@ -12,6 +12,17 @@ projects:
         url: https://github.com/user/myapp
       - key: ci
         url: https://github.com/user/myapp/actions
+    projects:
+      - name: web
+        description: The web frontend
+        commands:
+          - key: repo
+            url: https://github.com/user/myapp-web
+      - name: api
+        description: The backend service
+        commands:
+          - key: repo
+            url: https://github.com/user/myapp-api
   - name: website
     description: Company website
     commands:
