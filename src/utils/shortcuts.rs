@@ -184,12 +184,15 @@ pub fn collect_shortcuts(
     // 2. /Applications/Utilities (non-recursive)
     scan_dirs.push((PathBuf::from("/Applications/Utilities"), false));
 
-    // 3. ~/Applications (non-recursive — Homebrew Cask, user apps)
+    // 3. /System/Applications (non-recursive — Apple bundled apps like Find My, Music, TV)
+    scan_dirs.push((PathBuf::from("/System/Applications"), false));
+
+    // 4. ~/Applications (non-recursive — Homebrew Cask, user apps)
     if let Some(home) = dirs::home_dir() {
         scan_dirs.push((home.join("Applications"), false));
     }
 
-    // 4. Extra paths from config (recursive)
+    // 5. Extra paths from config (recursive)
     for extra in extra_paths {
         scan_dirs.push((PathBuf::from(extra), true));
     }
