@@ -10,17 +10,22 @@ pub const WINDOW_SIZE: [f32; 2] = [700.0, 500.0];
 
 /// Standard eframe options for the launcher window.
 pub fn launcher_options(visible: bool, monitor: Option<u32>) -> eframe::NativeOptions {
-    let mut viewport = eframe::egui::ViewportBuilder::default()
+    let viewport = eframe::egui::ViewportBuilder::default()
         .with_inner_size(WINDOW_SIZE)
         .with_decorations(false)
         .with_always_on_top()
         .with_visible(visible);
 
-    // When targeting a specific monitor, start the window off-screen so it
-    // doesn't flash on the primary display; LauncherApp repositions on frame 1.
-    if monitor.is_some() {
-        viewport = viewport.with_position(eframe::egui::pos2(-32000.0, -32000.0));
-    }
+    // When targeting a specific monitor on Windows, start the window off-screen
+    // so it doesn't flash on the primary display; LauncherApp repositions on
+    // frame 1.  On other platforms monitor_physical_rect is a no-op, so skip
+    // the off-screen trick to avoid the window being invisible forever.
+    #[cfg(windows)]
+    let viewport = if monitor.is_some() {
+        viewport.with_position(eframe::egui::pos2(-32000.0, -32000.0))
+    } else {
+        viewport
+    };
 
     eframe::NativeOptions {
         centered: visible && monitor.is_none(),
