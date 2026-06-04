@@ -124,6 +124,89 @@ fn ext_lowercase(path: &std::path::Path) -> String {
         .to_lowercase()
 }
 
+/// Read an IShellItem display name, freeing the COM-allocated string.
+#[cfg(target_os = "windows")]
+unsafe fn shell_item_display_name(
+    item: &windows::Win32::UI::Shell::IShellItem,
+    sigdn: windows::Win32::UI::Shell::SIGDN,
+) -> Option<String> {
+    let pw = item.GetDisplayName(sigdn).ok()?;
+    let result = pw.to_string().ok();
+    windows::Win32::System::Com::CoTaskMemFree(Some(pw.as_ptr() as *const _));
+    result
+}
+
+/// Collect MSIX/Store-packaged apps from shell:AppsFolder. These register via
+/// app manifest (no .lnk in the Start Menu), so the directory scan misses them.
+#[cfg(target_os = "windows")]
+fn collect_packaged_apps(
+    exclude_patterns: &[String],
+    seen: &mut std::collections::HashSet<String>,
+    entries: &mut Vec<ShortcutEntry>,
+) {
+    use windows::core::PCWSTR;
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::{
+        BHID_EnumItems, FOLDERID_AppsFolder, IEnumShellItems, IShellItem,
+        SHCreateItemInKnownFolder, KF_FLAG_DEFAULT, SIGDN_NORMALDISPLAY,
+        SIGDN_PARENTRELATIVEPARSING,
+    };
+
+    unsafe {
+        // S_FALSE (already initialized on this thread) is fine
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+
+        let folder: IShellItem = match SHCreateItemInKnownFolder(
+            &FOLDERID_AppsFolder,
+            KF_FLAG_DEFAULT,
+            PCWSTR::null(),
+        ) {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let enumerator: IEnumShellItems = match folder.BindToHandler(None, &BHID_EnumItems) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        loop {
+            let mut items: [Option<IShellItem>; 1] = [None];
+            let mut fetched = 0u32;
+            if enumerator.Next(&mut items, Some(&mut fetched)).is_err() || fetched == 0 {
+                break;
+            }
+            let item = match items[0].take() {
+                Some(i) => i,
+                None => break,
+            };
+
+            let aumid = match shell_item_display_name(&item, SIGDN_PARENTRELATIVEPARSING) {
+                Some(a) => a,
+                None => continue,
+            };
+            // Packaged apps have "PackageFamilyName!AppId" AUMIDs; anything else
+            // is a win32 app already covered by the .lnk/.url scan
+            if !aumid.contains('!') {
+                continue;
+            }
+
+            let name = match shell_item_display_name(&item, SIGDN_NORMALDISPLAY) {
+                Some(n) => n,
+                None => continue,
+            };
+            let key = name.to_lowercase();
+            if seen.contains(&key) || matches_any_pattern(&name, exclude_patterns) {
+                continue;
+            }
+            seen.insert(key);
+            entries.push(ShortcutEntry {
+                name,
+                path: PathBuf::from(format!(r"shell:AppsFolder\{}", aumid)),
+            });
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub fn collect_shortcuts(
     extra_paths: &[String],
@@ -168,7 +251,13 @@ pub fn collect_shortcuts(
         path.is_dir()
     }
 
-    collect_from_dirs(&scan_dirs, exclude_patterns, is_shortcut, is_recursible)
+    let mut entries = collect_from_dirs(&scan_dirs, exclude_patterns, is_shortcut, is_recursible);
+
+    let mut seen: std::collections::HashSet<String> =
+        entries.iter().map(|e| e.name.to_lowercase()).collect();
+    collect_packaged_apps(exclude_patterns, &mut seen, &mut entries);
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    entries
 }
 
 #[cfg(target_os = "macos")]
