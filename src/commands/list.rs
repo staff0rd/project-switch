@@ -285,6 +285,19 @@ pub fn execute_action(input: &str) -> Result<()> {
                         .find(|cmd| cmd.key.to_lowercase() == item.key.to_lowercase())
                         .ok_or_else(|| anyhow::anyhow!("Command '{}' not found", item.key))?;
 
+                    if selected_command.webview {
+                        let url = selected_command.url.as_ref().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Command '{}' has 'webview: true' but no 'url' configured",
+                                selected_command.key
+                            )
+                        })?;
+                        return crate::commands::webview::summon_or_open(
+                            url,
+                            config_manager.get_monitor(),
+                        );
+                    }
+
                     if let Some(ref cmd_str) = selected_command.command {
                         let final_args =
                             merge_args(selected_command.args.as_deref(), args.as_deref());

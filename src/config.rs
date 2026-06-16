@@ -18,6 +18,10 @@ fn default_true() -> bool {
     true
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 impl Default for ShortcutsConfig {
     fn default() -> Self {
         Self {
@@ -40,6 +44,10 @@ pub struct ProjectCommand {
     pub browser: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
+    /// Open this command's URL in the reusable borderless webview window
+    /// instead of a browser. Mutually exclusive with `command`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub webview: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,6 +325,7 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
         command: overlay.command.or(base.command),
         browser: overlay.browser.or(base.browser),
         args: overlay.args.or(base.args),
+        webview: overlay.webview || base.webview,
     }
 }
 
@@ -332,6 +341,13 @@ fn validate_command_list(commands: &[ProjectCommand], context: &str) -> Result<(
         if cmd.command.is_some() && cmd.browser.is_some() {
             anyhow::bail!(
                 "Command '{}' in {} has both 'command' and 'browser' — 'command' runs directly, not in a browser",
+                cmd.key,
+                context
+            );
+        }
+        if cmd.webview && cmd.command.is_some() {
+            anyhow::bail!(
+                "Command '{}' in {} has both 'webview: true' and 'command' — webview opens a URL, not a command",
                 cmd.key,
                 context
             );
@@ -599,6 +615,10 @@ impl ConfigManager {
 
     pub fn get_default_browser(&self) -> &str {
         self.config.default_browser.as_deref().unwrap_or("firefox")
+    }
+
+    pub fn get_monitor(&self) -> Option<u32> {
+        self.config.monitor
     }
 
     pub fn get_global_commands(&self) -> Option<&Vec<ProjectCommand>> {

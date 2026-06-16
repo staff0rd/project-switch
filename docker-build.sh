@@ -11,6 +11,10 @@ case "$TARGET" in
         mkdir -p /output/windows
         cp target/x86_64-pc-windows-gnu/release/project-switch.exe /output/windows/
         cp hotkey/target/x86_64-pc-windows-gnu/release/project-switch-hotkey.exe /output/windows/
+        # The gnu target can't statically link the MSVC WebView2 loader, so the
+        # webview window needs WebView2Loader.dll shipped next to the exe.
+        WEBVIEW2_LOADER=$(find target/x86_64-pc-windows-gnu/release/build -path '*/out/x64/WebView2Loader.dll' | head -n1)
+        cp "$WEBVIEW2_LOADER" /output/windows/
         ;;
     linux)
         echo "Building for Linux..."

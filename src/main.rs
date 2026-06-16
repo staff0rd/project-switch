@@ -29,6 +29,15 @@ enum Commands {
         /// Command key
         key: String,
     },
+    #[command(hide = true)]
+    /// Open a URL in the reusable borderless webview window (Windows only)
+    Webview {
+        /// URL to display
+        url: String,
+        /// Monitor number to center the window on (1-based)
+        #[arg(long)]
+        monitor: Option<u32>,
+    },
     /// List all openable items from the current client (interactive)
     List {
         /// Print the full command and args before executing
@@ -54,6 +63,7 @@ fn main() {
         Some(Commands::Current) => commands::current::execute(),
         #[allow(deprecated)]
         Some(Commands::Open { key }) => commands::open::execute(&key),
+        Some(Commands::Webview { url, monitor }) => commands::webview::execute(&url, monitor),
         Some(Commands::List {
             debug,
             gui,

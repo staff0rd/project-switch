@@ -35,12 +35,14 @@ pub fn trampoline_if_needed() -> bool {
         return false;
     }
 
-    // Copy all exes from source to local dir
+    // Copy all exes (and runtime DLLs, e.g. WebView2Loader.dll which
+    // project-switch.exe links at load time) from source to local dir
     let _ = fs::create_dir_all(&dest);
     if let Ok(entries) = fs::read_dir(exe_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("exe") {
+            let ext = path.extension().and_then(|e| e.to_str());
+            if matches!(ext, Some("exe") | Some("dll")) {
                 let target = dest.join(entry.file_name());
                 let _ = fs::copy(&path, &target);
             }
@@ -102,12 +104,17 @@ pub fn launch_project_switch(project_switch: &Path, monitor: u32) {
         let _ = AllowSetForegroundWindow(new_pid);
     }
 
-    // Kill old instances (non-blocking), excluding the one we just spawned.
+    // Kill old instances (non-blocking), excluding the one we just spawned and
+    // the long-lived webview window (a 'project-switch.exe webview <url>'
+    // process), which must survive so re-triggering summons it rather than
+    // spawning a duplicate.
     let _ = Command::new("wmic")
         .args([
             "process",
             "where",
-            &format!("Name='project-switch.exe' and ProcessId!='{new_pid}'"),
+            &format!(
+                "Name='project-switch.exe' and ProcessId!='{new_pid}' and CommandLine not like '%webview%'"
+            ),
             "call",
             "terminate",
         ])
