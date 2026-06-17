@@ -32,6 +32,19 @@ impl Default for ShortcutsConfig {
     }
 }
 
+/// Tray-managed WSL assist webserver settings. Owned and written by the
+/// project-switch-hotkey tray app; the CLI only needs to accept the section so
+/// it round-trips without tripping `deny_unknown_fields`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WebserverConfig {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distro: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectCommand {
@@ -97,6 +110,8 @@ pub struct Config {
     pub global: Option<Vec<ProjectCommand>>,
     #[serde(default)]
     pub shortcuts: Option<ShortcutsConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webserver: Option<WebserverConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -185,6 +200,12 @@ fn merge_configs(base: Config, overlay: Config) -> Config {
             overlay.shortcuts
         } else {
             base.shortcuts
+        },
+        // webserver is machine-specific: local replaces entirely
+        webserver: if overlay.webserver.is_some() {
+            overlay.webserver
+        } else {
+            base.webserver
         },
         monitor: overlay.monitor.or(base.monitor),
         clients: merge_client_lists(base.clients, overlay.clients),
@@ -471,6 +492,7 @@ impl ConfigManager {
                 default_browser: self.config.default_browser.clone(),
                 global: self.config.global.clone(),
                 shortcuts: self.config.shortcuts.clone(),
+                webserver: self.config.webserver.clone(),
                 monitor: self.config.monitor,
                 clients: self.local_clients.clone(),
             };

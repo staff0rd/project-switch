@@ -2,6 +2,12 @@ currentClient: myapp
 currentProject: web  # Optional nested project within the current client
 defaultBrowser: firefox  # Global default browser
 
+# Tray-managed WSL assist webserver (Windows only)
+webserver:
+  enabled: false                 # Set to true to let the tray own the assist webserver lifecycle
+  command: assist --no-open      # Command run inside WSL via `bash -lc "exec <command>"`
+  distro: ""                     # WSL distro to use (empty = default WSL distro)
+
 # Windows Desktop/Start Menu shortcut indexing
 shortcuts:
   enabled: true  # Set to false to hide shortcuts from the list command

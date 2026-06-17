@@ -110,6 +110,103 @@ pub fn write_monitor_index(index: u32) {
     save_config_doc(&path, &doc);
 }
 
+/// Read the current value of `webserver.enabled` from the config file.
+/// Returns `false` if the field is missing or the file doesn't exist (default behaviour).
+pub fn read_webserver_enabled() -> bool {
+    let path = match config_path() {
+        Some(p) if p.exists() => p,
+        _ => return false,
+    };
+    let contents = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let doc: Value = match serde_yaml::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    doc.get("webserver")
+        .and_then(|s| s.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// Read the `webserver.command` from the config file. Defaults to `assist --no-open`.
+pub fn read_webserver_command() -> String {
+    let default = || "assist --no-open".to_string();
+    let path = match config_path() {
+        Some(p) if p.exists() => p,
+        _ => return default(),
+    };
+    let contents = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return default(),
+    };
+    let doc: Value = match serde_yaml::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return default(),
+    };
+    doc.get("webserver")
+        .and_then(|s| s.get("command"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(default)
+}
+
+/// Read the `webserver.distro` from the config file.
+/// Returns `None` if missing or empty (use the default WSL distro).
+pub fn read_webserver_distro() -> Option<String> {
+    let path = match config_path() {
+        Some(p) if p.exists() => p,
+        _ => return None,
+    };
+    let contents = fs::read_to_string(&path).ok()?;
+    let doc: Value = serde_yaml::from_str(&contents).ok()?;
+    doc.get("webserver")
+        .and_then(|s| s.get("distro"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Toggle `webserver.enabled` in the config file. Creates the `webserver` section if needed.
+/// Returns the new value.
+pub fn toggle_webserver_enabled() -> bool {
+    let (path, mut doc) = match load_config_doc() {
+        Some(v) => v,
+        None => return false,
+    };
+
+    let current = doc
+        .get("webserver")
+        .and_then(|s| s.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let new_value = !current;
+
+    // Ensure webserver mapping exists
+    if doc.get("webserver").is_none() {
+        if let Value::Mapping(ref mut map) = doc {
+            map.insert(
+                Value::String("webserver".into()),
+                Value::Mapping(serde_yaml::Mapping::new()),
+            );
+        }
+    }
+
+    if let Some(webserver) = doc.get_mut("webserver") {
+        if let Value::Mapping(ref mut map) = webserver {
+            map.insert(Value::String("enabled".into()), Value::Bool(new_value));
+        }
+    }
+
+    save_config_doc(&path, &doc);
+
+    new_value
+}
+
 /// Toggle `shortcuts.enabled` in the config file. Creates the `shortcuts` section if needed.
 /// Returns the new value.
 pub fn toggle_shortcuts_enabled() -> bool {

@@ -86,13 +86,57 @@ fn main() {
     let shortcuts_enabled = config::read_shortcuts_enabled();
     let shortcuts_item = CheckMenuItem::new("Shortcuts", true, shortcuts_enabled, None);
     let shortcuts_id = shortcuts_item.id().clone();
+    let webserver_enabled = config::read_webserver_enabled();
+    let webserver_submenu = Submenu::new("Webserver", true);
+    let webserver_item = CheckMenuItem::new("Enabled", true, webserver_enabled, None);
+    let webserver_id = webserver_item.id().clone();
+    let webserver_restart_item = MenuItem::new("Restart", true, None);
+    let webserver_restart_id = webserver_restart_item.id().clone();
+    let webserver_open_item = MenuItem::new("Open in browser", true, None);
+    let webserver_open_id = webserver_open_item.id().clone();
+    let webserver_logs_item = MenuItem::new("View logs", true, None);
+    let webserver_logs_id = webserver_logs_item.id().clone();
+    webserver_submenu
+        .append(&webserver_item)
+        .expect("Failed to add webserver item");
+    webserver_submenu
+        .append(&webserver_restart_item)
+        .expect("Failed to add webserver item");
+    webserver_submenu
+        .append(&webserver_open_item)
+        .expect("Failed to add webserver item");
+    webserver_submenu
+        .append(&webserver_logs_item)
+        .expect("Failed to add webserver item");
     let exit_item = MenuItem::new("Exit", true, None);
     let exit_id = exit_item.id().clone();
     menu.append(&open_item).expect("Failed to add menu item");
     menu.append(&shortcuts_item).expect("Failed to add menu item");
+    menu.append(&webserver_submenu)
+        .expect("Failed to add menu item");
     menu.append(&monitor_submenu)
         .expect("Failed to add menu item");
     menu.append(&exit_item).expect("Failed to add menu item");
+
+    let webserver_command = config::read_webserver_command();
+    let webserver_distro = config::read_webserver_distro();
+
+    // Spawn the WSL assist webserver at startup if enabled. A previous tray
+    // instance killed without going through Exit (e.g. on rebuild/relaunch)
+    // leaves its WSL webserver orphaned and holding port 3100, so clear any
+    // existing one first to avoid an EADDRINUSE collision.
+    let mut webserver_child = if webserver_enabled {
+        platform::stop_webserver(None, &webserver_command, webserver_distro.as_deref());
+        match platform::spawn_webserver(&webserver_command, webserver_distro.as_deref()) {
+            Ok(child) => Some(child),
+            Err(e) => {
+                eprintln!("Failed to start webserver: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let mut tray_icon = None;
     let mut current_monitor = saved_monitor;
@@ -142,7 +186,50 @@ fn main() {
                 } else if event.id() == &shortcuts_id {
                     let new_value = config::toggle_shortcuts_enabled();
                     shortcuts_item.set_checked(new_value);
+                } else if event.id() == &webserver_id {
+                    let new_value = config::toggle_webserver_enabled();
+                    webserver_item.set_checked(new_value);
+                    if new_value {
+                        match platform::spawn_webserver(
+                            &webserver_command,
+                            webserver_distro.as_deref(),
+                        ) {
+                            Ok(child) => webserver_child = Some(child),
+                            Err(e) => eprintln!("Failed to start webserver: {e}"),
+                        }
+                    } else {
+                        platform::stop_webserver(
+                            webserver_child.take(),
+                            &webserver_command,
+                            webserver_distro.as_deref(),
+                        );
+                    }
+                } else if event.id() == &webserver_restart_id {
+                    platform::stop_webserver(
+                        webserver_child.take(),
+                        &webserver_command,
+                        webserver_distro.as_deref(),
+                    );
+                    match platform::spawn_webserver(
+                        &webserver_command,
+                        webserver_distro.as_deref(),
+                    ) {
+                        Ok(child) => {
+                            webserver_child = Some(child);
+                            webserver_item.set_checked(true);
+                        }
+                        Err(e) => eprintln!("Failed to restart webserver: {e}"),
+                    }
+                } else if event.id() == &webserver_open_id {
+                    platform::open_webserver_url();
+                } else if event.id() == &webserver_logs_id {
+                    platform::launch_log_tail();
                 } else if event.id() == &exit_id {
+                    platform::stop_webserver(
+                        webserver_child.take(),
+                        &webserver_command,
+                        webserver_distro.as_deref(),
+                    );
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
                 } else {

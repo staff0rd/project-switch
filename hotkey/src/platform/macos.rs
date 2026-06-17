@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 /// Hide this app from the macOS Dock (set activation policy to Accessory).
 pub fn hide_from_dock() {
@@ -35,6 +35,23 @@ pub fn kill_existing_hotkey_instances() {
         }
     }
 }
+
+/// No-op stub on macOS — the tray-managed WSL webserver is Windows-only.
+pub fn spawn_webserver(_command: &str, _distro: Option<&str>) -> std::io::Result<Child> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "webserver is only supported on Windows",
+    ))
+}
+
+/// No-op stub on macOS — the tray-managed WSL webserver is Windows-only.
+pub fn stop_webserver(_child: Option<Child>, _command: &str, _distro: Option<&str>) {}
+
+/// No-op stub on macOS — the tray-managed WSL webserver is Windows-only.
+pub fn open_webserver_url() {}
+
+/// No-op stub on macOS — the tray-managed WSL webserver is Windows-only.
+pub fn launch_log_tail() {}
 
 pub fn launch_project_switch(project_switch: &Path, monitor: u32) {
     // Kill any existing project-switch instances
