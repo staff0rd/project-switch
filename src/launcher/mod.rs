@@ -14,6 +14,8 @@ pub struct ListItem {
     pub key: String,
     pub display_detail: String,
     pub kind: ListItemKind,
+    /// Whether this command is pinned to the top of the recent list.
+    pub pinned: bool,
 }
 
 impl ListItem {
@@ -251,6 +253,40 @@ pub fn get_path_entries(input: &str) -> Vec<PathEntry> {
     result
 }
 
+/// Reorder recent keys for empty-input display. The result is, in order:
+/// accessed pinned commands (by recency), pinned commands never accessed
+/// (by config order), then the remaining recents (by recency).
+///
+/// `recent_keys` is most-recent-first; pinned status is read from the matching
+/// [`ListItem`] (non-item recents like expressions and file paths are never
+/// pinned). Never-accessed pins are injected from `items` so they surface even
+/// with no history entry. Used by both the CLI list view and the GUI launcher
+/// so their empty-input ordering stays identical.
+pub fn order_recent_keys(recent_keys: &[String], items: &[ListItem]) -> Vec<String> {
+    let is_pinned = |key: &String| items.iter().any(|item| &item.key == key && item.pinned);
+
+    let mut accessed_pinned: Vec<String> = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    for key in recent_keys {
+        if is_pinned(key) {
+            accessed_pinned.push(key.clone());
+        } else {
+            rest.push(key.clone());
+        }
+    }
+
+    let unused_pinned: Vec<String> = items
+        .iter()
+        .filter(|item| item.pinned && !recent_keys.iter().any(|key| key == &item.key))
+        .map(|item| item.key.clone())
+        .collect();
+
+    let mut ordered = accessed_pinned;
+    ordered.extend(unused_pinned);
+    ordered.extend(rest);
+    ordered
+}
+
 /// Filter a list of items by query string, returning matching items in order.
 /// When the query contains a space (i.e. keyword + args), use exact key match
 /// so that "g some text" only matches a "g" key, not everything containing "g".
@@ -332,16 +368,19 @@ mod tests {
                 key: "github".to_string(),
                 display_detail: "https://github.com/".to_string(),
                 kind: ListItemKind::Command,
+                pinned: false,
             },
             ListItem {
                 key: "jira".to_string(),
                 display_detail: "https://jira.example.com/".to_string(),
                 kind: ListItemKind::Command,
+                pinned: false,
             },
             ListItem {
                 key: "slack".to_string(),
                 display_detail: "https://slack.com/".to_string(),
                 kind: ListItemKind::Command,
+                pinned: false,
             },
             ListItem {
                 key: "Visual Studio Code".to_string(),
@@ -349,6 +388,7 @@ mod tests {
                 kind: ListItemKind::Shortcut {
                     path: "C:\\ProgramData\\Start Menu\\Visual Studio Code.lnk".to_string(),
                 },
+                pinned: false,
             },
         ]
     }
@@ -622,6 +662,7 @@ mod tests {
             key: "g".to_string(),
             display_detail: "https://google.com/search?q=".to_string(),
             kind: ListItemKind::Command,
+            pinned: false,
         });
         let filtered = filter_items(&items, "g some text");
         assert_eq!(filtered.len(), 1);
@@ -654,6 +695,7 @@ mod tests {
             key: "g".to_string(),
             display_detail: "https://google.com/search?q=".to_string(),
             kind: ListItemKind::Command,
+            pinned: false,
         });
         let (item, args) = resolve_item(&items, "g some text").unwrap();
         assert_eq!(item.key, "g");
@@ -688,6 +730,105 @@ mod tests {
         assert!(resolve_item(&items, "nonexistent").is_none());
     }
 
+    // --- order_recent_keys ---
+
+    fn cmd_item(key: &str, pinned: bool) -> ListItem {
+        ListItem {
+            key: key.to_string(),
+            display_detail: format!("https://{}/", key),
+            kind: ListItemKind::Command,
+            pinned,
+        }
+    }
+
+    #[test]
+    fn order_recent_keys_no_pins_preserves_order() {
+        let items = vec![cmd_item("a", false), cmd_item("b", false)];
+        let recents = vec!["b".to_string(), "a".to_string()];
+        assert_eq!(
+            order_recent_keys(&recents, &items),
+            vec!["b".to_string(), "a".to_string()]
+        );
+    }
+
+    #[test]
+    fn order_recent_keys_pulls_pinned_to_front() {
+        // "a" is pinned but was used less recently than "b"; it must still lead.
+        let items = vec![cmd_item("a", true), cmd_item("b", false)];
+        let recents = vec!["b".to_string(), "a".to_string()];
+        assert_eq!(
+            order_recent_keys(&recents, &items),
+            vec!["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn order_recent_keys_pinned_ordered_among_themselves_by_recency() {
+        let items = vec![
+            cmd_item("a", true),
+            cmd_item("b", true),
+            cmd_item("c", false),
+        ];
+        // Recency: b, c, a → pinned b then a, then non-pinned c.
+        let recents = vec!["b".to_string(), "c".to_string(), "a".to_string()];
+        assert_eq!(
+            order_recent_keys(&recents, &items),
+            vec!["b".to_string(), "a".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn order_recent_keys_injects_never_accessed_pin() {
+        // "a" is pinned but never accessed; it must appear at the top.
+        let items = vec![cmd_item("a", true), cmd_item("b", false)];
+        let recents = vec!["b".to_string()];
+        assert_eq!(
+            order_recent_keys(&recents, &items),
+            vec!["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn order_recent_keys_unused_pins_ordered_by_config() {
+        // Neither pin accessed; they follow config (items) order: a then b.
+        let items = vec![
+            cmd_item("a", true),
+            cmd_item("b", true),
+            cmd_item("c", false),
+        ];
+        let recents = vec!["c".to_string()];
+        assert_eq!(
+            order_recent_keys(&recents, &items),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn order_recent_keys_accessed_pins_before_unused_pins() {
+        // Accessed pin "b" leads; never-accessed pin "a" follows by config order;
+        // then the non-pinned recent "c".
+        let items = vec![
+            cmd_item("a", true),
+            cmd_item("b", true),
+            cmd_item("c", false),
+        ];
+        let recents = vec!["c".to_string(), "b".to_string()];
+        assert_eq!(
+            order_recent_keys(&recents, &items),
+            vec!["b".to_string(), "a".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn order_recent_keys_non_item_recents_never_pinned() {
+        let items = vec![cmd_item("a", true)];
+        let recents = vec!["=5+3".to_string(), "a".to_string(), "C:\\path".to_string()];
+        assert_eq!(
+            order_recent_keys(&recents, &items),
+            vec!["a".to_string(), "=5+3".to_string(), "C:\\path".to_string()]
+        );
+    }
+
     // --- ListItem::matches ---
 
     #[test]
@@ -696,6 +837,7 @@ mod tests {
             key: "GitHub".to_string(),
             display_detail: String::new(),
             kind: ListItemKind::Command,
+            pinned: false,
         };
         assert!(item.matches("github"));
         assert!(item.matches("Git"));

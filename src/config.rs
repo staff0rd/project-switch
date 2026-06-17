@@ -48,6 +48,10 @@ pub struct ProjectCommand {
     /// instead of a browser. Mutually exclusive with `command`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub webview: bool,
+    /// Force this command to the top of the recent list when the launcher
+    /// opens with empty input, regardless of when it was last used.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -326,6 +330,7 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
         browser: overlay.browser.or(base.browser),
         args: overlay.args.or(base.args),
         webview: overlay.webview || base.webview,
+        pinned: overlay.pinned || base.pinned,
     }
 }
 
@@ -735,6 +740,34 @@ clients:
         let on_disk = fs::read_to_string(&cm.config_path).unwrap();
         assert!(on_disk.contains("currentClient: EventsAir"));
         assert!(on_disk.contains("currentProject: Build & Deploy"));
+    }
+
+    #[test]
+    fn pinned_defaults_false_and_omitted_when_false() {
+        let cmd = ProjectCommand {
+            key: "git".to_string(),
+            url: Some("https://x".to_string()),
+            command: None,
+            browser: None,
+            args: None,
+            webview: false,
+            pinned: false,
+        };
+        let yaml = serde_yaml::to_string(&cmd).unwrap();
+        assert!(!yaml.contains("pinned"), "got: {}", yaml);
+
+        // Absent in YAML deserializes to false.
+        let parsed: ProjectCommand = serde_yaml::from_str("key: git\nurl: https://x\n").unwrap();
+        assert!(!parsed.pinned);
+    }
+
+    #[test]
+    fn pinned_true_round_trips() {
+        let parsed: ProjectCommand =
+            serde_yaml::from_str("key: git\nurl: https://x\npinned: true\n").unwrap();
+        assert!(parsed.pinned);
+        let yaml = serde_yaml::to_string(&parsed).unwrap();
+        assert!(yaml.contains("pinned: true"), "got: {}", yaml);
     }
 
     #[test]

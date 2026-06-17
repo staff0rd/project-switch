@@ -3,7 +3,9 @@
 //! Manages visibility, input, filtering, selection, and transitions
 //! independently of the GUI framework for testability.
 
-use crate::launcher::{eval_calc_input, filter_items, is_file_path, CalcResult, ListItem};
+use crate::launcher::{
+    eval_calc_input, filter_items, is_file_path, order_recent_keys, CalcResult, ListItem,
+};
 
 /// The current input mode, derived from the input text.
 #[derive(Debug, Clone, PartialEq)]
@@ -185,8 +187,8 @@ impl WindowState {
     /// (expressions, file paths). Used for GUI display and navigation.
     pub fn filtered_entries(&self) -> Vec<FilteredEntry> {
         if self.input.is_empty() && !self.recent_keys.is_empty() {
-            let entries: Vec<FilteredEntry> = self
-                .recent_keys
+            let ordered = order_recent_keys(&self.recent_keys, &self.items);
+            let entries: Vec<FilteredEntry> = ordered
                 .iter()
                 .filter_map(|key| {
                     // Known list item
@@ -285,6 +287,16 @@ mod tests {
             key: key.to_string(),
             display_detail: format!("https://{}.com/", key),
             kind: ListItemKind::Command,
+            pinned: false,
+        }
+    }
+
+    fn make_pinned_item(key: &str) -> ListItem {
+        ListItem {
+            key: key.to_string(),
+            display_detail: format!("https://{}.com/", key),
+            kind: ListItemKind::Command,
+            pinned: true,
         }
     }
 
@@ -299,6 +311,7 @@ mod tests {
             key: "g".to_string(),
             display_detail: "https://google.com/search?q=".to_string(),
             kind: ListItemKind::Command,
+            pinned: false,
         });
         items
     }
@@ -570,6 +583,7 @@ mod tests {
             key: "new".to_string(),
             display_detail: String::new(),
             kind: ListItemKind::Command,
+            pinned: false,
         }]);
         assert_eq!(state.selected, 0);
         assert_eq!(state.filtered_count(), 1);
@@ -689,6 +703,31 @@ mod tests {
     }
 
     #[test]
+    fn entries_pinned_recent_pulled_to_front() {
+        // "github" is pinned but used less recently than "jira"; it must lead.
+        let items = vec![make_pinned_item("github"), make_item("jira")];
+        let mut state = WindowState::new(items, vec!["jira".to_string(), "github".to_string()]);
+        state.show();
+        let entries = state.filtered_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0], FilteredEntry::Item(make_pinned_item("github")));
+        assert_eq!(entries[1], FilteredEntry::Item(make_item("jira")));
+    }
+
+    #[test]
+    fn entries_never_accessed_pin_injected_at_top() {
+        // "github" is pinned but never accessed; it must lead, ahead of the
+        // accessed non-pinned "jira".
+        let items = vec![make_pinned_item("github"), make_item("jira")];
+        let mut state = WindowState::new(items, vec!["jira".to_string()]);
+        state.show();
+        let entries = state.filtered_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0], FilteredEntry::Item(make_pinned_item("github")));
+        assert_eq!(entries[1], FilteredEntry::Item(make_item("jira")));
+    }
+
+    #[test]
     fn entries_invalid_expression_excluded() {
         let entries = entries_for(vec!["=abc".to_string(), "jira".to_string()]);
         assert_eq!(entries.len(), 1);
@@ -740,6 +779,7 @@ mod tests {
                 key: "g".to_string(),
                 display_detail: "https://google.com/search?q=".to_string(),
                 kind: ListItemKind::Command,
+                pinned: false,
             })
         );
         // The full input (key + args) must be available for execute_action

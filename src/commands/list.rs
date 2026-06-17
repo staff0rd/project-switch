@@ -1,7 +1,7 @@
 use crate::config::ConfigManager;
 use crate::launcher::{
     encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path, merge_args,
-    resolve_item, strip_ansi_codes, CalcResult, ListItem, ListItemKind,
+    order_recent_keys, resolve_item, strip_ansi_codes, CalcResult, ListItem, ListItemKind,
 };
 use crate::utils::browser;
 use crate::utils::shortcuts;
@@ -53,8 +53,8 @@ struct ListAutocomplete {
 impl ListAutocomplete {
     fn matching_suggestions(&self, keyword: &str) -> Vec<String> {
         if keyword.is_empty() && !self.recent_keys.is_empty() {
-            let recent: Vec<String> = self
-                .recent_keys
+            let ordered = order_recent_keys(&self.recent_keys, &self.items);
+            let recent: Vec<String> = ordered
                 .iter()
                 .filter_map(|key| {
                     // Known list item
@@ -209,6 +209,7 @@ fn load_command_items(
                 .or_else(|| cmd.command.clone())
                 .unwrap_or_default(),
             kind: ListItemKind::Command,
+            pinned: cmd.pinned,
         })
         .collect();
 
@@ -225,6 +226,7 @@ fn collect_shortcut_items(extra_paths: &[String], exclude: &[String]) -> Vec<Lis
             kind: ListItemKind::Shortcut {
                 path: entry.path.display().to_string(),
             },
+            pinned: false,
         })
         .collect()
 }
