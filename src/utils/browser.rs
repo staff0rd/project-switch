@@ -100,6 +100,16 @@ fn parse_browser_with_args(browser: &str) -> (&str, Vec<&str>) {
     }
 }
 
+/// The `prefix`-joined extra args as they appear in a debug command line, or an
+/// empty string when there are none (so it can be spliced in unconditionally).
+fn debug_extra_args(prefix: &str, extra_args: &[&str]) -> String {
+    if extra_args.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}", prefix, extra_args.join(" "))
+    }
+}
+
 pub fn open_url_in_browser(url: &str, browser: &str, debug: bool) -> Result<()> {
     let cmd_result = if cfg!(target_os = "windows") {
         // Encode spaces so PowerShell doesn't split the URL when passing to Start-Process
@@ -153,11 +163,7 @@ pub fn open_url_in_browser(url: &str, browser: &str, debug: bool) -> Result<()> 
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
             if debug {
-                let extra = if extra_args.is_empty() {
-                    String::new()
-                } else {
-                    format!(" --args {}", extra_args.join(" "))
-                };
+                let extra = debug_extra_args(" --args ", &extra_args);
                 println!(
                     "{}",
                     format!("[debug] open -a {}{} {}", browser_cmd, extra, url).dimmed()
@@ -183,11 +189,7 @@ pub fn open_url_in_browser(url: &str, browser: &str, debug: bool) -> Result<()> 
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
             if debug {
-                let extra = if extra_args.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {}", extra_args.join(" "))
-                };
+                let extra = debug_extra_args(" ", &extra_args);
                 println!(
                     "{}",
                     format!("[debug] {}{} {}", browser_cmd, extra, url).dimmed()

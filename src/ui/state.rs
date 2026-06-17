@@ -304,6 +304,25 @@ mod tests {
         vec![make_item("github"), make_item("jira"), make_item("slack")]
     }
 
+    /// Show state built from `recents` and assert all three sample items survive.
+    fn assert_all_items_shown(recents: Vec<String>) {
+        let mut state = WindowState::new(sample_items(), recents);
+        state.show();
+        assert_eq!(state.filtered_items().len(), 3);
+    }
+
+    /// Show state where pinned "github" should lead the accessed "jira",
+    /// regardless of which entries appear in `recents`.
+    fn assert_pinned_github_leads(recents: Vec<String>) {
+        let items = vec![make_pinned_item("github"), make_item("jira")];
+        let mut state = WindowState::new(items, recents);
+        state.show();
+        let entries = state.filtered_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0], FilteredEntry::Item(make_pinned_item("github")));
+        assert_eq!(entries[1], FilteredEntry::Item(make_item("jira")));
+    }
+
     /// Sample items plus a single-letter "g" command (used by args tests).
     fn sample_items_with_g() -> Vec<ListItem> {
         let mut items = sample_items();
@@ -381,9 +400,7 @@ mod tests {
 
     #[test]
     fn empty_input_shows_all() {
-        let mut state = WindowState::new(sample_items(), vec![]);
-        state.show();
-        assert_eq!(state.filtered_items().len(), 3);
+        assert_all_items_shown(vec![]);
     }
 
     #[test]
@@ -625,17 +642,12 @@ mod tests {
 
     #[test]
     fn empty_recents_shows_all_items() {
-        let mut state = WindowState::new(sample_items(), vec![]);
-        state.show();
-        assert_eq!(state.filtered_items().len(), 3);
+        assert_all_items_shown(vec![]);
     }
 
     #[test]
     fn all_recents_invalid_falls_back_to_full_list() {
-        let recents = vec!["deleted1".to_string(), "deleted2".to_string()];
-        let mut state = WindowState::new(sample_items(), recents);
-        state.show();
-        assert_eq!(state.filtered_items().len(), 3);
+        assert_all_items_shown(vec!["deleted1".to_string(), "deleted2".to_string()]);
     }
 
     // --- Filtered entries (expressions & paths in recents) ---
@@ -705,26 +717,14 @@ mod tests {
     #[test]
     fn entries_pinned_recent_pulled_to_front() {
         // "github" is pinned but used less recently than "jira"; it must lead.
-        let items = vec![make_pinned_item("github"), make_item("jira")];
-        let mut state = WindowState::new(items, vec!["jira".to_string(), "github".to_string()]);
-        state.show();
-        let entries = state.filtered_entries();
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0], FilteredEntry::Item(make_pinned_item("github")));
-        assert_eq!(entries[1], FilteredEntry::Item(make_item("jira")));
+        assert_pinned_github_leads(vec!["jira".to_string(), "github".to_string()]);
     }
 
     #[test]
     fn entries_never_accessed_pin_injected_at_top() {
         // "github" is pinned but never accessed; it must lead, ahead of the
         // accessed non-pinned "jira".
-        let items = vec![make_pinned_item("github"), make_item("jira")];
-        let mut state = WindowState::new(items, vec!["jira".to_string()]);
-        state.show();
-        let entries = state.filtered_entries();
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0], FilteredEntry::Item(make_pinned_item("github")));
-        assert_eq!(entries[1], FilteredEntry::Item(make_item("jira")));
+        assert_pinned_github_leads(vec!["jira".to_string()]);
     }
 
     #[test]

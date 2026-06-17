@@ -55,7 +55,7 @@ run:
     command: npx
     args:
       - jscpd
-      - --exitCode
+      - --exit-code
       - "1"
       - -r
       - consoleFull

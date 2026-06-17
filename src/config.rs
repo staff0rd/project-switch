@@ -54,35 +54,33 @@ pub struct ProjectCommand {
     pub pinned: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Project {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub browser: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub commands: Option<Vec<ProjectCommand>>,
+/// Declares an entry struct carrying the schema shared by clients and projects
+/// (`name`, `path`, `description`, `browser`, `commands`), plus any
+/// struct-specific fields listed in the body.
+macro_rules! entry_struct {
+    ($name:ident { $($extra:tt)* }) => {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        pub struct $name {
+            pub name: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub path: Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub description: Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub browser: Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub commands: Option<Vec<ProjectCommand>>,
+            $($extra)*
+        }
+    };
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Client {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub browser: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub commands: Option<Vec<ProjectCommand>>,
+entry_struct!(Project {});
+entry_struct!(Client {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub projects: Option<Vec<Project>>,
-}
+});
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -193,27 +191,58 @@ fn merge_configs(base: Config, overlay: Config) -> Config {
     }
 }
 
-fn merge_client_lists(base: Vec<Client>, overlay: Vec<Client>) -> Vec<Client> {
-    let mut merged: Vec<Client> = Vec::new();
+/// Merge two keyed lists. Entries whose key appears in both are combined via
+/// `merge`; base-only entries keep their order; overlay-only entries are
+/// appended afterwards (sorted by key when `sort_appended`).
+fn merge_keyed_lists<T: Clone>(
+    base: Vec<T>,
+    overlay: Vec<T>,
+    key: impl Fn(&T) -> &str,
+    merge: impl Fn(T, T) -> T,
+    sort_appended: bool,
+) -> Vec<T> {
+    let mut merged: Vec<T> = Vec::new();
 
-    // Start with base clients, merging overlay matches
-    for base_client in &base {
-        if let Some(overlay_client) = overlay.iter().find(|c| c.name == base_client.name) {
-            merged.push(merge_clients(base_client.clone(), overlay_client.clone()));
+    for base_entry in &base {
+        if let Some(overlay_entry) = overlay.iter().find(|&o| key(o) == key(base_entry)) {
+            merged.push(merge(base_entry.clone(), overlay_entry.clone()));
         } else {
-            merged.push(base_client.clone());
+            merged.push(base_entry.clone());
         }
     }
 
-    // Append overlay-only clients (not in base), sorted by name
-    let mut overlay_only: Vec<Client> = overlay
+    let mut overlay_only: Vec<T> = overlay
         .into_iter()
-        .filter(|c| !base.iter().any(|b| b.name == c.name))
+        .filter(|o| !base.iter().any(|b| key(b) == key(o)))
         .collect();
-    overlay_only.sort_by(|a, b| a.name.cmp(&b.name));
+    if sort_appended {
+        overlay_only.sort_by(|a, b| key(a).cmp(key(b)));
+    }
     merged.extend(overlay_only);
 
     merged
+}
+
+/// [`merge_keyed_lists`] lifted over the `Option<Vec<_>>` the config uses for
+/// optional command/project lists: two unset lists stay unset rather than
+/// collapsing to an empty list.
+fn merge_optional_lists<T: Clone>(
+    base: Option<Vec<T>>,
+    overlay: Option<Vec<T>>,
+    key: impl Fn(&T) -> &str,
+    merge: impl Fn(T, T) -> T,
+    sort_appended: bool,
+) -> Option<Vec<T>> {
+    match (base, overlay) {
+        (None, None) => None,
+        (Some(b), None) => Some(b),
+        (None, Some(o)) => Some(o),
+        (Some(b), Some(o)) => Some(merge_keyed_lists(b, o, key, merge, sort_appended)),
+    }
+}
+
+fn merge_client_lists(base: Vec<Client>, overlay: Vec<Client>) -> Vec<Client> {
+    merge_keyed_lists(base, overlay, |c| c.name.as_str(), merge_clients, true)
 }
 
 /// Merge the fields shared by [`Client`] and [`Project`] (everything except
@@ -247,37 +276,7 @@ fn merge_project_lists(
     base: Option<Vec<Project>>,
     overlay: Option<Vec<Project>>,
 ) -> Option<Vec<Project>> {
-    match (base, overlay) {
-        (None, None) => None,
-        (Some(b), None) => Some(b),
-        (None, Some(o)) => Some(o),
-        (Some(base_projects), Some(overlay_projects)) => {
-            let mut merged: Vec<Project> = Vec::new();
-
-            for base_project in &base_projects {
-                if let Some(overlay_project) = overlay_projects
-                    .iter()
-                    .find(|p| p.name == base_project.name)
-                {
-                    merged.push(merge_projects(
-                        base_project.clone(),
-                        overlay_project.clone(),
-                    ));
-                } else {
-                    merged.push(base_project.clone());
-                }
-            }
-
-            let mut overlay_only: Vec<Project> = overlay_projects
-                .into_iter()
-                .filter(|p| !base_projects.iter().any(|b| b.name == p.name))
-                .collect();
-            overlay_only.sort_by(|a, b| a.name.cmp(&b.name));
-            merged.extend(overlay_only);
-
-            Some(merged)
-        }
-    }
+    merge_optional_lists(base, overlay, |p| p.name.as_str(), merge_projects, true)
 }
 
 fn merge_projects(base: Project, overlay: Project) -> Project {
@@ -295,31 +294,7 @@ fn merge_command_lists(
     base: Option<Vec<ProjectCommand>>,
     overlay: Option<Vec<ProjectCommand>>,
 ) -> Option<Vec<ProjectCommand>> {
-    match (base, overlay) {
-        (None, None) => None,
-        (Some(b), None) => Some(b),
-        (None, Some(o)) => Some(o),
-        (Some(base_cmds), Some(overlay_cmds)) => {
-            let mut merged: Vec<ProjectCommand> = Vec::new();
-
-            for base_cmd in &base_cmds {
-                if let Some(overlay_cmd) = overlay_cmds.iter().find(|c| c.key == base_cmd.key) {
-                    merged.push(merge_commands(base_cmd.clone(), overlay_cmd.clone()));
-                } else {
-                    merged.push(base_cmd.clone());
-                }
-            }
-
-            // Append overlay-only commands
-            let overlay_only: Vec<ProjectCommand> = overlay_cmds
-                .into_iter()
-                .filter(|c| !base_cmds.iter().any(|b| b.key == c.key))
-                .collect();
-            merged.extend(overlay_only);
-
-            Some(merged)
-        }
-    }
+    merge_optional_lists(base, overlay, |c| c.key.as_str(), merge_commands, false)
 }
 
 fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectCommand {

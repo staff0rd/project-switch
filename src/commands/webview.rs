@@ -79,11 +79,39 @@ const GESTURE_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Injected when handing a link to the default browser fails. Shows a small,
+/// self-dismissing toast in the bottom-right of the current page (it removes any
+/// prior toast first, so repeated failures don't stack) and leaves the page
+/// untouched otherwise. Wrapped in a try so a hostile page that has redefined
+/// document globals can't surface a script error.
+#[cfg(windows)]
+const TOAST_SCRIPT: &str = r#"
+;(function () {
+  try {
+    var ID = '__ps_browser_toast__';
+    var prev = document.getElementById(ID);
+    if (prev) prev.remove();
+    var t = document.createElement('div');
+    t.id = ID;
+    t.textContent = 'Couldn’t open the link in your browser.';
+    t.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;' +
+      'max-width:320px;padding:12px 16px;border-radius:8px;cursor:pointer;' +
+      'background:#323232;color:#fff;font:14px system-ui,sans-serif;' +
+      'box-shadow:0 4px 12px rgba(0,0,0,.3);';
+    t.title = 'Click to dismiss';
+    t.addEventListener('click', function () { t.remove(); });
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 6000);
+  } catch (e) {}
+})();
+"#;
+
 /// IPC messages from the page, mapped to window operations on the main thread.
 #[cfg(windows)]
 enum UserEvent {
     Drag,
     Resize(tao::window::ResizeDirection),
+    OpenExternal(String),
 }
 
 #[cfg(windows)]
@@ -222,12 +250,33 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
 
     let proxy = event_loop.create_proxy();
 
+    // Origin of the configured URL. Navigations and popups to a *different*
+    // http(s) origin are redirected to the system browser; same-origin (and
+    // non-http(s), e.g. about:/error pages) stay inside the webview.
+    let initial_origin = crate::utils::url::origin_of(url);
+
+    // True when `target` should be handed off to the default browser rather than
+    // rendered in the webview: it is an http(s) URL whose origin differs from the
+    // configured origin. Non-http(s) targets (None origin) always stay put.
+    let is_external = {
+        let initial_origin = initial_origin.clone();
+        move |target: &str| match crate::utils::url::origin_of(target) {
+            Some(origin) => initial_origin.as_deref() != Some(origin.as_str()),
+            None => false,
+        }
+    };
+
     // The webview navigates asynchronously; an unreachable URL (e.g. the local
     // server isn't up yet) just lands WebView2 on its own error page rather than
     // failing the build, so the window stays alive and reloads cleanly later.
     //
     // `new_as_child` (not `new`) keeps us in control of the child bounds so we
     // can keep it filling the host on resize.
+    let nav_proxy = proxy.clone();
+    let nav_is_external = is_external.clone();
+    let popup_proxy = proxy.clone();
+    let popup_is_external = is_external;
+
     let webview = WebViewBuilder::new_as_child(&window)
         .with_url(url)
         .with_bounds(fill_bounds(window.inner_size()))
@@ -245,6 +294,26 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
                 let _ = proxy.send_event(event);
             }
         })
+        // Cross-origin link clicks: cancel the in-webview navigation (return
+        // false) and hand the URL to the default browser instead.
+        .with_navigation_handler(move |url| {
+            if nav_is_external(&url) {
+                let _ = nav_proxy.send_event(UserEvent::OpenExternal(url));
+                false
+            } else {
+                true
+            }
+        })
+        // target=_blank / window.open: suppress the popup (return false) for
+        // cross-origin URLs and open them in the default browser instead.
+        .with_new_window_req_handler(move |url| {
+            if popup_is_external(&url) {
+                let _ = popup_proxy.send_event(UserEvent::OpenExternal(url));
+                false
+            } else {
+                true
+            }
+        })
         .build()
         .context("Failed to create WebView2 window")?;
 
@@ -257,6 +326,11 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
             }
             Event::UserEvent(UserEvent::Resize(dir)) => {
                 let _ = window.drag_resize_window(dir);
+            }
+            Event::UserEvent(UserEvent::OpenExternal(url)) => {
+                if crate::utils::browser::open_url_in_browser(&url, "default", false).is_err() {
+                    let _ = webview.evaluate_script(TOAST_SCRIPT);
+                }
             }
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
