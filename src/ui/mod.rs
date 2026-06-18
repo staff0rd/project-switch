@@ -16,6 +16,18 @@ pub fn launcher_options(visible: bool, monitor: Option<u32>) -> eframe::NativeOp
         .with_always_on_top()
         .with_visible(visible);
 
+    // Give the window the app logo so the Windows taskbar shows it instead of
+    // the default executable icon.
+    #[cfg(windows)]
+    let viewport = {
+        let (rgba, width, height) = crate::icon::create_icon_rgba();
+        viewport.with_icon(eframe::egui::IconData {
+            rgba,
+            width,
+            height,
+        })
+    };
+
     // When targeting a specific monitor on Windows, start the window off-screen
     // so it doesn't flash on the primary display; LauncherApp repositions on
     // frame 1.  On other platforms monitor_physical_rect is a no-op, so skip
