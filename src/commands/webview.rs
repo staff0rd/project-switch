@@ -282,7 +282,8 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
         .with_title(WEBVIEW_WINDOW_TITLE)
         .with_decorations(false)
         .with_resizable(true)
-        .with_inner_size(size);
+        .with_inner_size(size)
+        .with_window_icon(webview_window_icon());
     if let Some(pos) = position {
         builder = builder.with_position(pos);
     }
@@ -382,6 +383,13 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
             _ => {}
         }
     });
+}
+
+/// App-logo window icon; tao won't adopt the exe's embedded icon on its own.
+#[cfg(windows)]
+fn webview_window_icon() -> Option<tao::window::Icon> {
+    let (rgba, width, height) = crate::icon::create_icon_rgba();
+    tao::window::Icon::from_rgba(rgba, width, height).ok()
 }
 
 /// Bounds that make the WebView2 child fill the host's entire client area.
