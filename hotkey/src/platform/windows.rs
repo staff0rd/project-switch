@@ -1,12 +1,9 @@
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::{env, fs};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-/// URL the tray-managed assist webserver listens on (assist --no-open, port 3100).
-const WEBSERVER_URL: &str = "http://localhost:3100";
 
 pub fn binary_name() -> &'static str {
     "project-switch.exe"
@@ -14,18 +11,6 @@ pub fn binary_name() -> &'static str {
 
 fn local_dir() -> Option<PathBuf> {
     env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("project-switch"))
-}
-
-/// Path to the webserver log file under `%LOCALAPPDATA%\project-switch\`,
-/// falling back to the current directory if the local dir is unavailable.
-fn log_path() -> PathBuf {
-    match local_dir() {
-        Some(dir) => {
-            let _ = fs::create_dir_all(&dir);
-            dir.join("assist.log")
-        }
-        None => PathBuf::from("assist.log"),
-    }
 }
 
 /// If running from the build output (not LOCALAPPDATA), copy both exes to
@@ -89,80 +74,6 @@ pub fn kill_existing_hotkey_instances() {
         .stderr(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .status();
-}
-
-/// Spawn the assist webserver inside WSL, capturing output to
-/// `%LOCALAPPDATA%\project-switch\assist.log`. The command always runs via a
-/// WSL login shell so `assist` resolves on the WSL PATH; a Windows binary is
-/// never used. Returns the `wsl.exe` Child handle.
-pub fn spawn_webserver(command: &str, distro: Option<&str>) -> std::io::Result<Child> {
-    let log_file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path())?;
-    let err_file = log_file.try_clone()?;
-
-    let mut cmd = Command::new("wsl.exe");
-    if let Some(distro) = distro {
-        cmd.args(["-d", distro]);
-    }
-    cmd.arg("--")
-        .arg("bash")
-        .arg("-lc")
-        .arg(format!("exec {command}"))
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(err_file))
-        .creation_flags(CREATE_NO_WINDOW);
-
-    cmd.spawn()
-}
-
-/// Stop the assist webserver. The Linux-side process is killed via a WSL-side
-/// `pkill -f` (the Windows `wsl.exe` handle alone does not reliably terminate
-/// the Linux process across the WSL boundary). The Child handle is then killed
-/// best-effort to clean up the Windows-side process.
-pub fn stop_webserver(child: Option<Child>, command: &str, distro: Option<&str>) {
-    let mut cmd = Command::new("wsl.exe");
-    if let Some(distro) = distro {
-        cmd.args(["-d", distro]);
-    }
-    let _ = cmd
-        .arg("--")
-        .arg("pkill")
-        .arg("-f")
-        .arg(command)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
-
-    if let Some(mut child) = child {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-}
-
-/// Open the webserver URL in the system's default web browser.
-pub fn open_webserver_url() {
-    let _ = Command::new("cmd")
-        .args(["/c", "start", "", WEBSERVER_URL])
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
-}
-
-/// Open Windows Terminal live-tailing the webserver log file.
-pub fn launch_log_tail() {
-    let log = log_path();
-    let _ = Command::new("wt.exe")
-        .arg("powershell")
-        .arg("-NoExit")
-        .arg("-Command")
-        .arg(format!(
-            "Get-Content -LiteralPath '{}' -Wait -Tail 50",
-            log.display()
-        ))
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
 }
 
 pub fn launch_project_switch(project_switch: &Path, monitor: u32) {

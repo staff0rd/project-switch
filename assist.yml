@@ -30,6 +30,15 @@ run:
       - cargo
       - fmt
       - --check
+  - name: fmt
+    command: docker
+    args:
+      - compose
+      - run
+      - --rm
+      - lint
+      - cargo
+      - fmt
   - name: verify:clippy
     command: docker
     args:
@@ -73,4 +82,8 @@ run:
       - test
 deny:
   - pattern: cargo
-    message: Cargo is not available in this environment. Do you mean /test or /build?  See assist.yml
+    message: Cargo is not available in this environment. Builds and checks run in the container — use /test or /build, or `BUILD_TARGET=macos docker compose run --rm build` for the macOS target. See assist.yml
+  - pattern: rustc
+    message: rustc is not available in this environment. Builds and checks run in the container — use /test or /build, or `BUILD_TARGET=macos docker compose run --rm build` for the macOS target. See assist.yml
+  - pattern: jscpd
+    message: Don't run jscpd directly — its flags/pattern live in assist.yml. Use `assist verify` (or `assist run verify:duplicate-code`) so the configured invocation is used.

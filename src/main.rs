@@ -30,7 +30,7 @@ enum Commands {
         key: String,
     },
     #[command(hide = true)]
-    /// Open a URL in the reusable borderless webview window (Windows only)
+    /// Open a URL in the reusable webview window
     Webview {
         /// URL to display
         url: String,

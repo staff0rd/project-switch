@@ -4,6 +4,7 @@ mod config;
 mod icon;
 mod platform;
 mod sync;
+mod webserver;
 
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
@@ -126,8 +127,8 @@ fn main() {
     // leaves its WSL webserver orphaned and holding port 3100, so clear any
     // existing one first to avoid an EADDRINUSE collision.
     let mut webserver_child = if webserver_enabled {
-        platform::stop_webserver(None, &webserver_command, webserver_distro.as_deref());
-        match platform::spawn_webserver(&webserver_command, webserver_distro.as_deref()) {
+        webserver::stop_webserver(None, &webserver_command, webserver_distro.as_deref());
+        match webserver::spawn_webserver(&webserver_command, webserver_distro.as_deref()) {
             Ok(child) => Some(child),
             Err(e) => {
                 eprintln!("Failed to start webserver: {e}");
@@ -190,7 +191,7 @@ fn main() {
                     let new_value = config::toggle_webserver_enabled();
                     webserver_item.set_checked(new_value);
                     if new_value {
-                        match platform::spawn_webserver(
+                        match webserver::spawn_webserver(
                             &webserver_command,
                             webserver_distro.as_deref(),
                         ) {
@@ -198,19 +199,19 @@ fn main() {
                             Err(e) => eprintln!("Failed to start webserver: {e}"),
                         }
                     } else {
-                        platform::stop_webserver(
+                        webserver::stop_webserver(
                             webserver_child.take(),
                             &webserver_command,
                             webserver_distro.as_deref(),
                         );
                     }
                 } else if event.id() == &webserver_restart_id {
-                    platform::stop_webserver(
+                    webserver::stop_webserver(
                         webserver_child.take(),
                         &webserver_command,
                         webserver_distro.as_deref(),
                     );
-                    match platform::spawn_webserver(
+                    match webserver::spawn_webserver(
                         &webserver_command,
                         webserver_distro.as_deref(),
                     ) {
@@ -221,11 +222,11 @@ fn main() {
                         Err(e) => eprintln!("Failed to restart webserver: {e}"),
                     }
                 } else if event.id() == &webserver_open_id {
-                    platform::open_webserver_url();
+                    webserver::open_webserver_url();
                 } else if event.id() == &webserver_logs_id {
-                    platform::launch_log_tail();
+                    webserver::launch_log_tail();
                 } else if event.id() == &exit_id {
-                    platform::stop_webserver(
+                    webserver::stop_webserver(
                         webserver_child.take(),
                         &webserver_command,
                         webserver_distro.as_deref(),

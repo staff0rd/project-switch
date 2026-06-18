@@ -2,8 +2,8 @@
 /// `https://example.com:8080/path?q=1` -> `https://example.com:8080`.
 /// Returns `None` for non-http(s) URLs (about:, error pages, etc.) so callers
 /// can leave those navigations untouched.
-// Only consumed by the Windows-only webview; unused on other targets.
-#[cfg_attr(not(windows), allow(dead_code))]
+// Only consumed by the webview window; unused on other targets.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 pub fn origin_of(url: &str) -> Option<String> {
     let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
         ("https", rest)
