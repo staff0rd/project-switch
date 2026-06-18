@@ -524,7 +524,7 @@ fn spawn_window(url: &str, monitor: Option<u32>) -> Result<()> {
 /// come from the OS for free.
 #[cfg(target_os = "macos")]
 pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
-    use tao::event::{Event, WindowEvent};
+    use tao::event::{Event, StartCause, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoop};
     use tao::window::WindowBuilder;
     use wry::WebViewBuilder;
@@ -572,8 +572,12 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
-        if let Event::WindowEvent { event, .. } = event {
-            match event {
+        match event {
+            // Set the dock icon once NSApplication has finished launching — tao
+            // only promotes the bare binary to a regular app (giving it a dock
+            // tile) during event-loop startup, so setting it earlier is lost.
+            Event::NewEvents(StartCause::Init) => set_dock_icon(),
+            Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
                     save_geometry(&window);
                     *control_flow = ControlFlow::Exit;
@@ -583,9 +587,58 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
                 // never delivers CloseRequested.
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => save_geometry(&window),
                 _ => {}
-            }
+            },
+            _ => {}
         }
     });
+}
+
+/// Set the dock icon to the squircle-masked logo, so the bare binary's webview
+/// window no longer shows the default terminal/exec icon. Best-effort: any
+/// failure leaves the default icon in place rather than blocking the window.
+#[cfg(target_os = "macos")]
+fn set_dock_icon() {
+    use objc2::AnyThread;
+    use objc2_app_kit::{NSApplication, NSBitmapImageRep, NSImage};
+    use objc2_foundation::{MainThreadMarker, NSSize, NSString};
+
+    let (rgba, width, height) = crate::icon::create_dock_icon_rgba();
+
+    unsafe {
+        let color_space = NSString::from_str("NSDeviceRGBColorSpace");
+        // Passing null planes makes NSBitmapImageRep allocate its own buffer, so
+        // `rgba` needn't outlive this call; we then copy our pixels into it.
+        let Some(rep) = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            NSBitmapImageRep::alloc(),
+            std::ptr::null_mut(),
+            width as isize,
+            height as isize,
+            8,
+            4,
+            true,
+            false,
+            &color_space,
+            (width * 4) as isize,
+            32,
+        ) else {
+            return;
+        };
+
+        let dst = rep.bitmapData();
+        if dst.is_null() {
+            return;
+        }
+        std::ptr::copy_nonoverlapping(rgba.as_ptr(), dst, rgba.len());
+
+        let image =
+            NSImage::initWithSize(NSImage::alloc(), NSSize::new(width as f64, height as f64));
+        image.addRepresentation(&rep);
+
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
+    }
 }
 
 /// Bring the single webview window to the front if its process already exists,

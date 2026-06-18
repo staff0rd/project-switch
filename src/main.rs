@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod history;
 mod hotkey;
+mod icon;
 mod launcher;
 mod ui;
 mod utils;

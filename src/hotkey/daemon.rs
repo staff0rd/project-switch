@@ -43,7 +43,7 @@ struct MenuIds {
 
 #[cfg(any(windows, target_os = "macos"))]
 fn create_tray(shortcuts_enabled: bool) -> Result<(TrayIcon, MenuIds)> {
-    use crate::hotkey::icon::create_icon_rgba;
+    use crate::icon::create_icon_rgba;
     let menu = Menu::new();
     let open = MenuItem::new("Open", true, None);
     let shortcuts = CheckMenuItem::new("Shortcuts", true, shortcuts_enabled, None);
