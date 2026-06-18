@@ -1,5 +1,9 @@
 When running the program, use powershell. See README.md for usage and configuration details.
 
+## Comments
+
+Prefer self-descriptive code over comments. Do not write comments that restate what the code already says. Only add a comment when something genuinely would not make sense without it (a non-obvious why, a hack, a workaround). No multi-line comment blocks on small functions — one terse line at most.
+
 ## Programs
 
 This repo produces two Rust binaries:
