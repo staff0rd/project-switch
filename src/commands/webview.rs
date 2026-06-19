@@ -547,8 +547,8 @@ pub fn summon_or_open(url: &str, monitor: Option<u32>, title: Option<&str>) -> R
         FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
     };
 
-    let title = HSTRING::from(WEBVIEW_WINDOW_TITLE);
-    let hwnd = unsafe { FindWindowW(PCWSTR::null(), &title) };
+    let window_title = HSTRING::from(WEBVIEW_WINDOW_TITLE);
+    let hwnd = unsafe { FindWindowW(PCWSTR::null(), &window_title) };
 
     if let Ok(hwnd) = hwnd {
         if !hwnd.is_invalid() {
