@@ -22,7 +22,7 @@ pub fn trampoline_if_needed() -> bool {
 pub fn kill_existing_hotkey_instances() {
     let our_pid = std::process::id().to_string();
     let output = Command::new("pgrep")
-        .args(["-f", "project-switch-hotkey"])
+        .args(["-x", "project-switch-hotkey"])
         .output();
 
     if let Ok(output) = output {

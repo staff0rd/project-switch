@@ -9,7 +9,7 @@ esac
 
 # On macOS, kill the running hotkey service before rebuilding
 if [ "$BUILD_TARGET" = "macos" ]; then
-    pkill -f project-switch-hotkey || true
+    pkill -x project-switch-hotkey || true
 fi
 
 echo "Building for $BUILD_TARGET..."
