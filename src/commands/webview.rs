@@ -79,6 +79,25 @@ const GESTURE_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Reloads the current page on Cmd+R (macOS) / Ctrl+R (Windows), so the webview
+/// window mirrors the browser shortcut and the error page doubles as a retry —
+/// `location.reload()` re-requests the failed URL when the page is WKWebView's /
+/// WebView2's own error page. Wrapped in a try so a page that has redefined
+/// globals can't surface a script error.
+#[cfg(any(windows, target_os = "macos"))]
+const RELOAD_SCRIPT: &str = r#"
+;(function () {
+  try {
+    window.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault();
+        location.reload();
+      }
+    }, true);
+  } catch (e) {}
+})();
+"#;
+
 /// Injected when handing a link to the default browser fails. Shows a small,
 /// self-dismissing toast in the bottom-right of the current page (it removes any
 /// prior toast first, so repeated failures don't stack) and leaves the page
@@ -347,7 +366,7 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
     let webview = WebViewBuilder::new_as_child(&window)
         .with_url(url)
         .with_bounds(fill_bounds(window.inner_size()))
-        .with_initialization_script(GESTURE_SCRIPT)
+        .with_initialization_script(&format!("{GESTURE_SCRIPT}\n{RELOAD_SCRIPT}"))
         .with_ipc_handler(move |req| {
             let body = req.body().as_str();
             let event = if body == "drag" {
@@ -588,7 +607,7 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
 
     let _webview = WebViewBuilder::new(&window)
         .with_url(url)
-        .with_initialization_script(LINK_SCRIPT)
+        .with_initialization_script(&format!("{LINK_SCRIPT}\n{RELOAD_SCRIPT}"))
         // Links the page surfaces via target=_blank / window.open (e.g. URLs in
         // the assist terminal) bypass WKWebView's handlers; LINK_SCRIPT forwards
         // them here so they open in the default browser.
