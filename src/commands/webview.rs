@@ -106,6 +106,40 @@ const TOAST_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Injected into the macOS webview so external links in the page reach the host.
+/// WKWebView does not route `target=_blank` anchor clicks or `window.open` calls
+/// (as the assist terminal uses for URLs) through wry's navigation/new-window
+/// handlers, so nothing opened. This captures both and forwards external http(s)
+/// URLs to the host over IPC (`open:<url>`); same-origin links navigate normally.
+#[cfg(target_os = "macos")]
+const LINK_SCRIPT: &str = r#"
+;(function () {
+  const isExternal = (url) => {
+    try {
+      const u = new URL(url, location.href);
+      return (u.protocol === 'http:' || u.protocol === 'https:') &&
+        u.origin !== location.origin;
+    } catch (e) { return false; }
+  };
+  const forward = (url) => { try { window.ipc.postMessage('open:' + url); } catch (e) {} };
+  window.addEventListener('click', (e) => {
+    for (let el = e.target; el && el !== document.documentElement; el = el.parentElement) {
+      if (el.tagName === 'A' && el.href && isExternal(el.href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        forward(el.href);
+        return;
+      }
+    }
+  }, true);
+  const origOpen = window.open;
+  window.open = function (url) {
+    if (typeof url === 'string' && isExternal(url)) { forward(url); return null; }
+    return origOpen.apply(window, arguments);
+  };
+})();
+"#;
+
 /// IPC messages from the page, mapped to window operations on the main thread.
 #[cfg(windows)]
 enum UserEvent {
@@ -554,6 +588,15 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
 
     let _webview = WebViewBuilder::new(&window)
         .with_url(url)
+        .with_initialization_script(LINK_SCRIPT)
+        // Links the page surfaces via target=_blank / window.open (e.g. URLs in
+        // the assist terminal) bypass WKWebView's handlers; LINK_SCRIPT forwards
+        // them here so they open in the default browser.
+        .with_ipc_handler(|req| {
+            if let Some(url) = req.body().as_str().strip_prefix("open:") {
+                let _ = crate::utils::browser::open_url_in_browser(url, "default", false);
+            }
+        })
         // Cross-origin link clicks: cancel the in-webview navigation (return
         // false) and hand the URL to the default browser instead.
         .with_navigation_handler(move |url| {
