@@ -306,18 +306,27 @@ fn external_predicate(url: &str) -> impl Fn(&str) -> bool + Clone {
 /// fresh webview process. Callers apply any platform-specific flags before
 /// spawning.
 #[cfg(any(windows, target_os = "macos"))]
-fn webview_command(url: &str, monitor: Option<u32>) -> Result<std::process::Command> {
+fn webview_command(
+    url: &str,
+    monitor: Option<u32>,
+    title: Option<&str>,
+) -> Result<std::process::Command> {
     let exe = std::env::current_exe().context("Unable to determine current executable path")?;
     let mut command = std::process::Command::new(exe);
     command.args(["webview", url]);
     if let Some(n) = monitor {
         command.args(["--monitor", &n.to_string()]);
     }
+    if let Some(t) = title {
+        command.args(["--title", t]);
+    }
     Ok(command)
 }
 
+// `_title` is ignored on Windows: the window title stays the constant so
+// window-reuse lookup (FindWindowW) keeps working.
 #[cfg(windows)]
-pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
+pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<()> {
     use tao::event::{Event, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tao::platform::windows::WindowExtWindows;
@@ -532,7 +541,7 @@ fn enable_resize_frame(hwnd: windows::Win32::Foundation::HWND) {
 /// spawn a fresh `project-switch webview <url>` process. Guarantees only one
 /// webview window ever exists.
 #[cfg(windows)]
-pub fn summon_or_open(url: &str, monitor: Option<u32>) -> Result<()> {
+pub fn summon_or_open(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
@@ -556,17 +565,17 @@ pub fn summon_or_open(url: &str, monitor: Option<u32>) -> Result<()> {
         }
     }
 
-    spawn_window(url, monitor)
+    spawn_window(url, monitor, title)
 }
 
 #[cfg(windows)]
-fn spawn_window(url: &str, monitor: Option<u32>) -> Result<()> {
+fn spawn_window(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
     use std::os::windows::process::CommandExt;
     use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    let child = webview_command(url, monitor)?
+    let child = webview_command(url, monitor, title)?
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .context("Failed to spawn webview process")?;
@@ -584,7 +593,7 @@ fn spawn_window(url: &str, monitor: Option<u32>) -> Result<()> {
 /// messages), this keeps native decorations, so dragging, resizing and closing
 /// come from the OS for free.
 #[cfg(target_os = "macos")]
-pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
+pub fn execute(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
     use tao::event::{Event, StartCause, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoop};
     use tao::window::WindowBuilder;
@@ -594,7 +603,7 @@ pub fn execute(url: &str, monitor: Option<u32>) -> Result<()> {
 
     let ((size, position), _saved) = seed_geometry(&event_loop, monitor);
     let mut builder = WindowBuilder::new()
-        .with_title(WEBVIEW_WINDOW_TITLE)
+        .with_title(title.unwrap_or(WEBVIEW_WINDOW_TITLE))
         .with_inner_size(size);
     if let Some(pos) = position {
         builder = builder.with_position(pos);
@@ -715,11 +724,11 @@ fn set_dock_icon() {
 /// otherwise spawn a fresh `project-switch webview <url>` process. Guarantees
 /// only one webview window ever exists.
 #[cfg(target_os = "macos")]
-pub fn summon_or_open(url: &str, monitor: Option<u32>) -> Result<()> {
+pub fn summon_or_open(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
     if activate_existing_webview() {
         return Ok(());
     }
-    spawn_window(url, monitor)
+    spawn_window(url, monitor, title)
 }
 
 /// Find a running `project-switch webview` process and bring it to the front.
@@ -764,19 +773,19 @@ fn activate_pid(pid: i32) {
 }
 
 #[cfg(target_os = "macos")]
-fn spawn_window(url: &str, monitor: Option<u32>) -> Result<()> {
-    webview_command(url, monitor)?
+fn spawn_window(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
+    webview_command(url, monitor, title)?
         .spawn()
         .context("Failed to spawn webview process")?;
     Ok(())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn execute(_url: &str, _monitor: Option<u32>) -> Result<()> {
+pub fn execute(_url: &str, _monitor: Option<u32>, _title: Option<&str>) -> Result<()> {
     anyhow::bail!("The 'webview' subcommand is not supported on this platform")
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn summon_or_open(_url: &str, _monitor: Option<u32>) -> Result<()> {
+pub fn summon_or_open(_url: &str, _monitor: Option<u32>, _title: Option<&str>) -> Result<()> {
     anyhow::bail!("The webview window is not supported on this platform")
 }

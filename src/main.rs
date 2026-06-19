@@ -38,6 +38,9 @@ enum Commands {
         /// Monitor number to center the window on (1-based)
         #[arg(long)]
         monitor: Option<u32>,
+        /// Window title (macOS); defaults to the constant when absent
+        #[arg(long)]
+        title: Option<String>,
     },
     /// List all openable items from the current client (interactive)
     List {
@@ -64,7 +67,11 @@ fn main() {
         Some(Commands::Current) => commands::current::execute(),
         #[allow(deprecated)]
         Some(Commands::Open { key }) => commands::open::execute(&key),
-        Some(Commands::Webview { url, monitor }) => commands::webview::execute(&url, monitor),
+        Some(Commands::Webview {
+            url,
+            monitor,
+            title,
+        }) => commands::webview::execute(&url, monitor, title.as_deref()),
         Some(Commands::List {
             debug,
             gui,

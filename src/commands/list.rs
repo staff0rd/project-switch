@@ -297,6 +297,7 @@ pub fn execute_action(input: &str) -> Result<()> {
                         return crate::commands::webview::summon_or_open(
                             url,
                             config_manager.get_monitor(),
+                            Some(&selected_command.key),
                         );
                     }
 
