@@ -37,7 +37,7 @@ const DEFAULT_LOGICAL_SIZE: [f64; 2] = [1280.0, 832.0];
 #[cfg(windows)]
 const GESTURE_SCRIPT: &str = r#"
 ;(function () {
-  const DRAG_H = 64;
+  const DRAG_H = 48;
   const EDGE = 6;
   const interactive = (el) => {
     for (; el && el !== document.documentElement; el = el.parentElement) {
