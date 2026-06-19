@@ -2,14 +2,21 @@
 //! the platform-specific command construction selected by `cfg`.
 //!
 //! On Windows the server runs inside WSL (`wsl.exe -- bash -lc`); macOS has no
-//! WSL, so it runs natively through the user's login shell (`$SHELL -lc`).
+//! WSL, so it runs natively through the user's shell (`$SHELL -ilc`). The shell
+//! must be interactive (`-i`) as well as login (`-l`): version managers like fnm
+//! initialise in `.zshrc`, which a non-interactive shell never sources, so a
+//! login-only shell resolves the wrong Node and may not find `assist` on PATH.
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::{env, fs};
+use std::time::Duration;
+use std::{env, fs, thread};
 
-/// URL the tray-managed assist webserver listens on (assist --no-open, port 3100).
-const WEBSERVER_URL: &str = "http://localhost:3100";
+const STOP_WAIT: Duration = Duration::from_secs(3);
+const STOP_POLL: Duration = Duration::from_millis(50);
+
+/// Port the tray-managed assist webserver listens on (assist --no-open).
+const WEBSERVER_PORT: u16 = 3100;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -67,7 +74,7 @@ fn launch_command(command: &str, distro: Option<&str>) -> Command {
 fn launch_command(command: &str, _distro: Option<&str>) -> Command {
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let mut cmd = Command::new(shell);
-    cmd.arg("-lc").arg(format!("exec {command}"));
+    cmd.arg("-ilc").arg(format!("exec {command}"));
     cmd
 }
 
@@ -88,7 +95,8 @@ pub fn spawn_webserver(command: &str, distro: Option<&str>) -> std::io::Result<C
 
 /// Build the command that stops the running webserver. On Windows the Linux-side
 /// process is killed via a WSL-side `pkill -f` (the Windows handle alone does not
-/// reliably terminate the Linux process); elsewhere a plain `pkill -f`.
+/// reliably terminate the Linux process); elsewhere the process listening on the
+/// webserver port is killed.
 #[cfg(windows)]
 fn stop_command(command: &str, distro: Option<&str>) -> Command {
     let mut cmd = wsl_base(distro);
@@ -96,11 +104,52 @@ fn stop_command(command: &str, distro: Option<&str>) -> Command {
     cmd
 }
 
+// Match the webserver by its listening port, not its command line: a `pkill -f`
+// substring match also catches unrelated assist/claude processes whose arguments
+// happen to contain the webserver command.
 #[cfg(not(windows))]
-fn stop_command(command: &str, _distro: Option<&str>) -> Command {
-    let mut cmd = Command::new("pkill");
-    cmd.arg("-f").arg(command);
+fn stop_command(_command: &str, _distro: Option<&str>) -> Command {
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c").arg(format!(
+        "lsof -ti tcp:{WEBSERVER_PORT} -sTCP:LISTEN | while read pid; do kill \"$pid\"; done"
+    ));
     cmd
+}
+
+#[cfg(windows)]
+fn running_command(command: &str, distro: Option<&str>) -> Command {
+    let mut cmd = wsl_base(distro);
+    cmd.arg("pgrep").arg("-f").arg(command);
+    cmd
+}
+
+#[cfg(not(windows))]
+fn running_command(_command: &str, _distro: Option<&str>) -> Command {
+    let mut cmd = Command::new("lsof");
+    cmd.arg("-ti")
+        .arg(format!("tcp:{WEBSERVER_PORT}"))
+        .arg("-sTCP:LISTEN");
+    cmd
+}
+
+fn webserver_running(command: &str, distro: Option<&str>) -> bool {
+    running_command(command, distro)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn wait_until_stopped(command: &str, distro: Option<&str>) {
+    let mut waited = Duration::ZERO;
+    while waited < STOP_WAIT {
+        if !webserver_running(command, distro) {
+            return;
+        }
+        thread::sleep(STOP_POLL);
+        waited += STOP_POLL;
+    }
 }
 
 /// Stop the assist webserver: kill the server process by command match, then reap
@@ -115,6 +164,8 @@ pub fn stop_webserver(child: Option<Child>, command: &str, distro: Option<&str>)
         let _ = child.kill();
         let _ = child.wait();
     }
+
+    wait_until_stopped(command, distro);
 }
 
 /// Open the webserver URL in the system's default web browser.
@@ -123,13 +174,15 @@ pub fn open_webserver_url() {
     {
         use std::os::windows::process::CommandExt;
         let _ = Command::new("cmd")
-            .args(["/c", "start", "", WEBSERVER_URL])
+            .args(["/c", "start", "", &format!("http://localhost:{WEBSERVER_PORT}")])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
     }
     #[cfg(not(windows))]
     {
-        let _ = Command::new("open").arg(WEBSERVER_URL).spawn();
+        let _ = Command::new("open")
+            .arg(format!("http://localhost:{WEBSERVER_PORT}"))
+            .spawn();
     }
 }
 

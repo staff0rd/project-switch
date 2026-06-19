@@ -122,10 +122,6 @@ fn main() {
     let webserver_command = config::read_webserver_command();
     let webserver_distro = config::read_webserver_distro();
 
-    // Spawn the WSL assist webserver at startup if enabled. A previous tray
-    // instance killed without going through Exit (e.g. on rebuild/relaunch)
-    // leaves its WSL webserver orphaned and holding port 3100, so clear any
-    // existing one first to avoid an EADDRINUSE collision.
     let mut webserver_child = if webserver_enabled {
         webserver::stop_webserver(None, &webserver_command, webserver_distro.as_deref());
         match webserver::spawn_webserver(&webserver_command, webserver_distro.as_deref()) {
