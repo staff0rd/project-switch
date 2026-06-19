@@ -8,3 +8,4 @@ screenshots/
 .claude/settings.local.json
 .assist-*
 .assist/*.db*
+.intentionally-empty-file.o
