@@ -652,10 +652,14 @@ pub fn execute(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<(
         *control_flow = ControlFlow::Wait;
 
         match event {
-            // Set the dock icon once NSApplication has finished launching — tao
-            // only promotes the bare binary to a regular app (giving it a dock
-            // tile) during event-loop startup, so setting it earlier is lost.
-            Event::NewEvents(StartCause::Init) => set_dock_icon(),
+            // Set the dock icon and main menu once NSApplication has finished
+            // launching — tao only promotes the bare binary to a regular app
+            // (giving it a dock tile and menu bar) during event-loop startup, so
+            // doing this earlier is lost.
+            Event::NewEvents(StartCause::Init) => {
+                set_dock_icon();
+                set_main_menu();
+            }
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
                     save_geometry(&window);
@@ -717,6 +721,56 @@ fn set_dock_icon() {
             return;
         };
         NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
+    }
+}
+
+/// Install a minimal main menu on the bare webview binary. A regular (foreground)
+/// macOS app with no main menu leaves the left side of the system menu bar — the
+/// Apple menu and the app menu — unresponsive to clicks; only an app menu and an
+/// Edit menu are needed to restore that, and the Edit menu also wires up the
+/// standard Cmd+X/C/V/A shortcuts inside the webview.
+#[cfg(target_os = "macos")]
+fn set_main_menu() {
+    use objc2::sel;
+    use objc2_app_kit::{NSApplication, NSMenu, NSMenuItem};
+    use objc2_foundation::{MainThreadMarker, NSString};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    unsafe {
+        let main_menu = NSMenu::new(mtm);
+
+        let app_item = NSMenuItem::new(mtm);
+        let app_menu = NSMenu::new(mtm);
+        let quit = NSMenuItem::new(mtm);
+        quit.setTitle(&NSString::from_str("Quit project-switch"));
+        quit.setAction(Some(sel!(terminate:)));
+        quit.setKeyEquivalent(&NSString::from_str("q"));
+        app_menu.addItem(&quit);
+        app_item.setSubmenu(Some(&app_menu));
+        main_menu.addItem(&app_item);
+
+        let edit_item = NSMenuItem::new(mtm);
+        let edit_menu = NSMenu::new(mtm);
+        edit_menu.setTitle(&NSString::from_str("Edit"));
+        for (title, action, key) in [
+            ("Cut", sel!(cut:), "x"),
+            ("Copy", sel!(copy:), "c"),
+            ("Paste", sel!(paste:), "v"),
+            ("Select All", sel!(selectAll:), "a"),
+        ] {
+            let item = NSMenuItem::new(mtm);
+            item.setTitle(&NSString::from_str(title));
+            item.setAction(Some(action));
+            item.setKeyEquivalent(&NSString::from_str(key));
+            edit_menu.addItem(&item);
+        }
+        edit_item.setSubmenu(Some(&edit_menu));
+        main_menu.addItem(&edit_item);
+
+        NSApplication::sharedApplication(mtm).setMainMenu(Some(&main_menu));
     }
 }
 

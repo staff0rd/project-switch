@@ -40,6 +40,8 @@ objc2-app-kit = { version = "0.3", features = [
     "NSImage",
     "NSImageRep",
     "NSBitmapImageRep",
+    "NSMenu",
+    "NSMenuItem",
 ] }
 objc2-foundation = { version = "0.3", features = ["NSString", "NSGeometry"] }
 winit = { version = "0.30", default-features = false }
