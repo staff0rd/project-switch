@@ -1,6 +1,6 @@
 commit:
   conventional: false
-  pull: false
+  pull: true
   push: true
 notify:
   enabled: true
