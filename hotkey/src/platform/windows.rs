@@ -113,7 +113,7 @@ pub fn launch_project_switch(project_switch: &Path, monitor: u32) {
             "process",
             "where",
             &format!(
-                "Name='project-switch.exe' and ProcessId!='{new_pid}' and CommandLine not like '%webview%'"
+                "Name='project-switch.exe' and ProcessId!='{new_pid}' and not CommandLine like '%webview%'"
             ),
             "call",
             "terminate",
