@@ -92,3 +92,24 @@ Each client may contain a `projects:` array. When a project is selected, the eff
 **Schema migration:** Old configs using `projects:` / `currentProject:` are rewritten in place to `clients:` / `currentClient:` on first load. Included configs are migrated too.
 
 See `example-include-config.yml` for a full shared config example.
+
+## Webserver
+
+The `project-switch-hotkey` tray app can manage a background webserver (the assist UI). Configure it under a `webserver` key in `~/.project-switch.yml`:
+
+```yaml
+webserver:
+  enabled: true
+  command: assist --no-open   # default
+  distro: Ubuntu              # optional; Windows only, uses the default WSL distro if omitted
+```
+
+On Windows the webserver runs inside WSL via a login shell (`bash -lc`); on macOS it runs through your login shell (`$SHELL -ilc`). Because a login shell sources your `.profile`, any blocking setup there (for example an ssh-agent / SSL-key unlock step) can hang or fail at boot and take the webserver down.
+
+When launching the webserver, the tray sets `PROJECT_SWITCH_WEBSERVER=1` in the shell's environment before the profile is sourced. Guard the blocking step in your `.profile` so it is skipped for the webserver:
+
+```sh
+if [ -z "$PROJECT_SWITCH_WEBSERVER" ]; then
+    # ssh-agent / SSL-key setup here — skipped when launched by the webserver
+fi
+```

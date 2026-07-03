@@ -66,6 +66,15 @@ fn wsl_base(distro: Option<&str>) -> Command {
 #[cfg(windows)]
 fn launch_command(command: &str, distro: Option<&str>) -> Command {
     let mut cmd = wsl_base(distro);
+    // Set on the process env (not the -c string) so the marker is present while
+    // the login profile is sourced, before `command` runs. WSLENV carries it into
+    // WSL; append to any existing WSLENV so we don't clobber other shared vars.
+    cmd.env("PROJECT_SWITCH_WEBSERVER", "1");
+    let wslenv = match env::var("WSLENV") {
+        Ok(existing) if !existing.is_empty() => format!("{existing}:PROJECT_SWITCH_WEBSERVER"),
+        _ => "PROJECT_SWITCH_WEBSERVER".to_string(),
+    };
+    cmd.env("WSLENV", wslenv);
     cmd.arg("bash").arg("-lc").arg(format!("exec {command}"));
     cmd
 }
@@ -74,6 +83,9 @@ fn launch_command(command: &str, distro: Option<&str>) -> Command {
 fn launch_command(command: &str, _distro: Option<&str>) -> Command {
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let mut cmd = Command::new(shell);
+    // Set on the process env (not the -c string) so the marker is present while
+    // the login profile is sourced, before `command` runs.
+    cmd.env("PROJECT_SWITCH_WEBSERVER", "1");
     cmd.arg("-ilc").arg(format!("exec {command}"));
     cmd
 }
