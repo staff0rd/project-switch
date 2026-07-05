@@ -106,10 +106,14 @@ webserver:
 
 On Windows the webserver runs inside WSL via a login shell (`bash -lc`); on macOS it runs through your login shell (`$SHELL -ilc`). Because a login shell sources your `.profile`, any blocking setup there (for example an ssh-agent / SSL-key unlock step) can hang or fail at boot and take the webserver down.
 
-When launching the webserver, the tray sets `PROJECT_SWITCH_WEBSERVER=1` in the shell's environment before the profile is sourced. Guard the blocking step in your `.profile` so it is skipped for the webserver:
+When launching the webserver, the tray sets `PROJECT_SWITCH_WEBSERVER=1` in the shell's environment before the profile is sourced. Guard only the passphrase prompt, not the whole ssh-agent setup — the webserver must still attach to your persistent agent so git can reach the key once it is unlocked. With [keychain](https://www.funtoo.org/Keychain), use `--noask` for the webserver:
 
 ```sh
 if [ -z "$PROJECT_SWITCH_WEBSERVER" ]; then
-    # ssh-agent / SSL-key setup here — skipped when launched by the webserver
+    eval `keychain --eval <your-key>`
+else
+    eval `keychain --eval --noask <your-key>`
 fi
 ```
+
+Keychain keeps one persistent agent per host, so unlocking the key once in any interactive shell also unlocks it for the running webserver.
