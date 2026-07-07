@@ -119,11 +119,11 @@ pub fn open_url_in_browser(url: &str, browser: &str, debug: bool) -> Result<()> 
             if debug {
                 println!(
                     "{}",
-                    format!("[debug] powershell -Command {}", ps_cmd).dimmed()
+                    format!("[debug] powershell -NoProfile -Command {}", ps_cmd).dimmed()
                 );
             }
             Command::new("powershell")
-                .args(["-Command", &ps_cmd])
+                .args(["-NoProfile", "-Command", &ps_cmd])
                 .status()
         } else {
             let (browser_cmd, extra_args) = parse_browser_with_args(browser);
@@ -147,11 +147,11 @@ pub fn open_url_in_browser(url: &str, browser: &str, debug: bool) -> Result<()> 
             if debug {
                 println!(
                     "{}",
-                    format!("[debug] powershell -Command {}", ps_command).dimmed()
+                    format!("[debug] powershell -NoProfile -Command {}", ps_command).dimmed()
                 );
             }
             Command::new("powershell")
-                .args(["-Command", &ps_command])
+                .args(["-NoProfile", "-Command", &ps_command])
                 .status()
         }
     } else if cfg!(target_os = "macos") {

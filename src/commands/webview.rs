@@ -165,6 +165,7 @@ enum UserEvent {
     Drag,
     Resize(tao::window::ResizeDirection),
     OpenExternal(String),
+    ShowToast,
 }
 
 #[cfg(windows)]
@@ -412,6 +413,8 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
         .build()
         .context("Failed to create WebView2 window")?;
 
+    let toast_proxy = event_loop.create_proxy();
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -422,10 +425,18 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
             Event::UserEvent(UserEvent::Resize(dir)) => {
                 let _ = window.drag_resize_window(dir);
             }
+            // Launch off-thread so a slow browser cold-start never blocks the
+            // event loop's message pump (which shows "Not Responding").
             Event::UserEvent(UserEvent::OpenExternal(url)) => {
-                if crate::utils::browser::open_url_in_browser(&url, "default", false).is_err() {
-                    let _ = webview.evaluate_script(TOAST_SCRIPT);
-                }
+                let err_proxy = toast_proxy.clone();
+                std::thread::spawn(move || {
+                    if crate::utils::browser::open_url_in_browser(&url, "default", false).is_err() {
+                        let _ = err_proxy.send_event(UserEvent::ShowToast);
+                    }
+                });
+            }
+            Event::UserEvent(UserEvent::ShowToast) => {
+                let _ = webview.evaluate_script(TOAST_SCRIPT);
             }
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
