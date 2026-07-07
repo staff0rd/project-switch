@@ -154,6 +154,29 @@ pub fn read_webserver_command() -> String {
         .unwrap_or_else(default)
 }
 
+/// Read the `webserver.port` from the config file. Defaults to 3100.
+/// This must match the port the `command` actually binds (e.g. `--port`); it
+/// drives the "Open in browser" URL and the port-based stop on non-Windows.
+pub fn read_webserver_port() -> u16 {
+    let path = match config_path() {
+        Some(p) if p.exists() => p,
+        _ => return 3100,
+    };
+    let contents = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return 3100,
+    };
+    let doc: Value = match serde_yaml::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return 3100,
+    };
+    doc.get("webserver")
+        .and_then(|s| s.get("port"))
+        .and_then(|v| v.as_u64())
+        .and_then(|n| u16::try_from(n).ok())
+        .unwrap_or(3100)
+}
+
 /// Read the `webserver.distro` from the config file.
 /// Returns `None` if missing or empty (use the default WSL distro).
 pub fn read_webserver_distro() -> Option<String> {

@@ -15,9 +15,6 @@ use std::{env, fs, thread};
 const STOP_WAIT: Duration = Duration::from_secs(3);
 const STOP_POLL: Duration = Duration::from_millis(50);
 
-/// Port the tray-managed assist webserver listens on (assist --no-open).
-const WEBSERVER_PORT: u16 = 3100;
-
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -110,7 +107,7 @@ pub fn spawn_webserver(command: &str, distro: Option<&str>) -> std::io::Result<C
 /// reliably terminate the Linux process); elsewhere the process listening on the
 /// webserver port is killed.
 #[cfg(windows)]
-fn stop_command(command: &str, distro: Option<&str>) -> Command {
+fn stop_command(command: &str, distro: Option<&str>, _port: u16) -> Command {
     let mut cmd = wsl_base(distro);
     cmd.arg("pkill").arg("-f").arg(command);
     cmd
@@ -120,32 +117,32 @@ fn stop_command(command: &str, distro: Option<&str>) -> Command {
 // substring match also catches unrelated assist/claude processes whose arguments
 // happen to contain the webserver command.
 #[cfg(not(windows))]
-fn stop_command(_command: &str, _distro: Option<&str>) -> Command {
+fn stop_command(_command: &str, _distro: Option<&str>, port: u16) -> Command {
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg(format!(
-        "lsof -ti tcp:{WEBSERVER_PORT} -sTCP:LISTEN | while read pid; do kill \"$pid\"; done"
+        "lsof -ti tcp:{port} -sTCP:LISTEN | while read pid; do kill \"$pid\"; done"
     ));
     cmd
 }
 
 #[cfg(windows)]
-fn running_command(command: &str, distro: Option<&str>) -> Command {
+fn running_command(command: &str, distro: Option<&str>, _port: u16) -> Command {
     let mut cmd = wsl_base(distro);
     cmd.arg("pgrep").arg("-f").arg(command);
     cmd
 }
 
 #[cfg(not(windows))]
-fn running_command(_command: &str, _distro: Option<&str>) -> Command {
+fn running_command(_command: &str, _distro: Option<&str>, port: u16) -> Command {
     let mut cmd = Command::new("lsof");
     cmd.arg("-ti")
-        .arg(format!("tcp:{WEBSERVER_PORT}"))
+        .arg(format!("tcp:{port}"))
         .arg("-sTCP:LISTEN");
     cmd
 }
 
-fn webserver_running(command: &str, distro: Option<&str>) -> bool {
-    running_command(command, distro)
+fn webserver_running(command: &str, distro: Option<&str>, port: u16) -> bool {
+    running_command(command, distro, port)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -153,10 +150,10 @@ fn webserver_running(command: &str, distro: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
-fn wait_until_stopped(command: &str, distro: Option<&str>) {
+fn wait_until_stopped(command: &str, distro: Option<&str>, port: u16) {
     let mut waited = Duration::ZERO;
     while waited < STOP_WAIT {
-        if !webserver_running(command, distro) {
+        if !webserver_running(command, distro, port) {
             return;
         }
         thread::sleep(STOP_POLL);
@@ -166,8 +163,8 @@ fn wait_until_stopped(command: &str, distro: Option<&str>) {
 
 /// Stop the assist webserver: kill the server process by command match, then reap
 /// the spawned Child handle best-effort.
-pub fn stop_webserver(child: Option<Child>, command: &str, distro: Option<&str>) {
-    let _ = stop_command(command, distro)
+pub fn stop_webserver(child: Option<Child>, command: &str, distro: Option<&str>, port: u16) {
+    let _ = stop_command(command, distro, port)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
@@ -177,23 +174,23 @@ pub fn stop_webserver(child: Option<Child>, command: &str, distro: Option<&str>)
         let _ = child.wait();
     }
 
-    wait_until_stopped(command, distro);
+    wait_until_stopped(command, distro, port);
 }
 
 /// Open the webserver URL in the system's default web browser.
-pub fn open_webserver_url() {
+pub fn open_webserver_url(port: u16) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         let _ = Command::new("cmd")
-            .args(["/c", "start", "", &format!("http://localhost:{WEBSERVER_PORT}")])
+            .args(["/c", "start", "", &format!("http://localhost:{port}")])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
     }
     #[cfg(not(windows))]
     {
         let _ = Command::new("open")
-            .arg(format!("http://localhost:{WEBSERVER_PORT}"))
+            .arg(format!("http://localhost:{port}"))
             .spawn();
     }
 }

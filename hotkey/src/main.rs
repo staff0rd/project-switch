@@ -121,9 +121,15 @@ fn main() {
 
     let webserver_command = config::read_webserver_command();
     let webserver_distro = config::read_webserver_distro();
+    let webserver_port = config::read_webserver_port();
 
     let mut webserver_child = if webserver_enabled {
-        webserver::stop_webserver(None, &webserver_command, webserver_distro.as_deref());
+        webserver::stop_webserver(
+            None,
+            &webserver_command,
+            webserver_distro.as_deref(),
+            webserver_port,
+        );
         match webserver::spawn_webserver(&webserver_command, webserver_distro.as_deref()) {
             Ok(child) => Some(child),
             Err(e) => {
@@ -199,6 +205,7 @@ fn main() {
                             webserver_child.take(),
                             &webserver_command,
                             webserver_distro.as_deref(),
+                            webserver_port,
                         );
                     }
                 } else if event.id() == &webserver_restart_id {
@@ -206,6 +213,7 @@ fn main() {
                         webserver_child.take(),
                         &webserver_command,
                         webserver_distro.as_deref(),
+                        webserver_port,
                     );
                     match webserver::spawn_webserver(
                         &webserver_command,
@@ -218,7 +226,7 @@ fn main() {
                         Err(e) => eprintln!("Failed to restart webserver: {e}"),
                     }
                 } else if event.id() == &webserver_open_id {
-                    webserver::open_webserver_url();
+                    webserver::open_webserver_url(webserver_port);
                 } else if event.id() == &webserver_logs_id {
                     webserver::launch_log_tail();
                 } else if event.id() == &exit_id {
@@ -226,6 +234,7 @@ fn main() {
                         webserver_child.take(),
                         &webserver_command,
                         webserver_distro.as_deref(),
+                        webserver_port,
                     );
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;

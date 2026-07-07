@@ -102,7 +102,10 @@ webserver:
   enabled: true
   command: assist --no-open   # default
   distro: Ubuntu              # optional; Windows only, uses the default WSL distro if omitted
+  port: 3100                  # optional; drives the "Open in browser" URL and the stop check
 ```
+
+The `command` binds the port, so to move it you must set both: point the command at the port and match `port`. The bare `assist --no-open` is fixed to 3100 — use the subcommand form to choose a port, e.g. `command: assist sessions web --no-open --port 3101` with `port: 3101`. This lets two Windows accounts each run their own webserver without colliding on the shared host port (relevant under WSL mirrored networking, where a port bound in one account's WSL is visible machine-wide).
 
 On Windows the webserver runs inside WSL via a login shell (`bash -lc`); on macOS it runs through your login shell (`$SHELL -ilc`). Because a login shell sources your `.profile`, any blocking setup there (for example an ssh-agent / SSL-key unlock step) can hang or fail at boot and take the webserver down.
 

@@ -43,6 +43,8 @@ pub struct WebserverConfig {
     pub command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub distro: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

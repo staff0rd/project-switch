@@ -7,6 +7,7 @@ webserver:
   enabled: false                 # Set to true to let the tray own the assist webserver lifecycle
   command: assist --no-open      # Command run inside WSL via `bash -lc "exec <command>"`
   distro: ""                     # WSL distro to use (empty = default WSL distro)
+  port: 3100                     # Port the command binds; drives the open-in-browser URL and stop check
 
 # Windows Desktop/Start Menu shortcut indexing
 shortcuts:
