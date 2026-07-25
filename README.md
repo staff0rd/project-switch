@@ -41,6 +41,23 @@ project-switch list
 
 Uses `~/.project-switch.yml` for configuration. See `example-config.yml` for reference.
 
+### Shortcuts
+
+With `shortcuts.enabled`, `project-switch list` also indexes installed apps:
+
+- **Windows** (`.lnk`/`.url`): user and public Desktop (flat), user and all-users Start Menu (recursive), plus packaged apps via `shell:AppsFolder`.
+- **macOS** (`.app`): `/Applications` and `~/Applications` (flat), `/System/Applications` (recursive, so `Utilities/` apps like Activity Monitor and Terminal are found; never descends into `.app` internals).
+- **Linux:** none.
+
+`shortcuts.extraPaths` are scanned recursively. `shortcuts.exclude` patterns match the display name case-insensitively, as exact, `prefix*`, `*suffix` or `*contains*`:
+
+```yaml
+shortcuts:
+  exclude:
+    - "Migration Assistant"
+    - "*Utility"
+```
+
 ### Config Sharing
 
 To share client definitions across machines, use the `include` field to reference a shared config file (e.g. stored in a dotfiles repo):

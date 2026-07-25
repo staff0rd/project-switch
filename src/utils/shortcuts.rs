@@ -270,18 +270,15 @@ pub fn collect_shortcuts(
     // 1. /Applications (non-recursive)
     scan_dirs.push((PathBuf::from("/Applications"), false));
 
-    // 2. /Applications/Utilities (non-recursive)
-    scan_dirs.push((PathBuf::from("/Applications/Utilities"), false));
+    // 2. /System/Applications (recursive — Apple bundled apps, plus Utilities/ beneath it)
+    scan_dirs.push((PathBuf::from("/System/Applications"), true));
 
-    // 3. /System/Applications (non-recursive — Apple bundled apps like Find My, Music, TV)
-    scan_dirs.push((PathBuf::from("/System/Applications"), false));
-
-    // 4. ~/Applications (non-recursive — Homebrew Cask, user apps)
+    // 3. ~/Applications (non-recursive — Homebrew Cask, user apps)
     if let Some(home) = dirs::home_dir() {
         scan_dirs.push((home.join("Applications"), false));
     }
 
-    // 5. Extra paths from config (recursive)
+    // 4. Extra paths from config (recursive)
     for extra in extra_paths {
         scan_dirs.push((PathBuf::from(extra), true));
     }
@@ -302,4 +299,93 @@ pub fn collect_shortcuts(
     _exclude_patterns: &[String],
 ) -> Vec<ShortcutEntry> {
     Vec::new()
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_activity_monitor_in_system_utilities() {
+        let utilities = std::path::Path::new("/System/Applications/Utilities");
+        if !utilities.is_dir() {
+            return;
+        }
+
+        let entries = collect_shortcuts(&[], &[]);
+        let activity_monitor = entries
+            .iter()
+            .find(|e| e.name == "Activity Monitor")
+            .expect("Activity Monitor should be collected");
+
+        assert!(activity_monitor.path.starts_with(utilities));
+    }
+
+    #[test]
+    fn finds_the_other_system_utilities() {
+        let utilities = std::path::Path::new("/System/Applications/Utilities");
+        if !utilities.is_dir() {
+            return;
+        }
+
+        let entries = collect_shortcuts(&[], &[]);
+        for expected in [
+            "Terminal",
+            "Disk Utility",
+            "Console",
+            "Screenshot",
+            "System Information",
+        ] {
+            let entry = entries
+                .iter()
+                .find(|e| e.name == expected)
+                .unwrap_or_else(|| panic!("{} should be collected", expected));
+            assert!(entry.path.starts_with(utilities));
+        }
+    }
+
+    #[test]
+    fn exclude_patterns_filter_system_utilities() {
+        if !std::path::Path::new("/System/Applications/Utilities").is_dir() {
+            return;
+        }
+
+        let exclude = vec![
+            "Activity Monitor".to_string(),
+            "*Utility".to_string(),
+            "Screen*".to_string(),
+            "*Informat*".to_string(),
+        ];
+        let names: Vec<String> = collect_shortcuts(&[], &exclude)
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+
+        for excluded in [
+            "Activity Monitor",
+            "Disk Utility",
+            "VoiceOver Utility",
+            "Screenshot",
+            "System Information",
+        ] {
+            assert!(
+                !names.iter().any(|n| n == excluded),
+                "{} should have been excluded",
+                excluded
+            );
+        }
+        assert!(names.iter().any(|n| n == "Terminal"));
+    }
+
+    #[test]
+    fn does_not_descend_into_app_bundles() {
+        for entry in collect_shortcuts(&[], &[]) {
+            let path = entry.path.to_string_lossy();
+            assert!(
+                !path.contains(".app/"),
+                "entry path descends into a bundle: {}",
+                path
+            );
+        }
+    }
 }
