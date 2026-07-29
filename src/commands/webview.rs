@@ -413,6 +413,8 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
         .build()
         .context("Failed to create WebView2 window")?;
 
+    enable_status_bar(&webview);
+
     let toast_proxy = event_loop.create_proxy();
 
     event_loop.run(move |event, _, control_flow| {
@@ -456,6 +458,26 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
             _ => {}
         }
     });
+}
+
+/// Restore Edge's hover link preview (the bottom-left status strip). WebView2
+/// defaults `IsStatusBarEnabled` to true, but wry hardcodes it to false while
+/// creating the webview and its builder exposes no toggle, so the only way back
+/// is the controller's settings after the build. Best-effort: losing the preview
+/// is not worth failing the window over.
+#[cfg(windows)]
+fn enable_status_bar(webview: &wry::WebView) {
+    use wry::WebViewExtWindows;
+
+    unsafe {
+        if let Ok(settings) = webview
+            .controller()
+            .CoreWebView2()
+            .and_then(|w| w.Settings())
+        {
+            let _ = settings.SetIsStatusBarEnabled(true);
+        }
+    }
 }
 
 /// App-logo window icon; tao won't adopt the exe's embedded icon on its own.
@@ -603,6 +625,10 @@ fn spawn_window(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<
 /// injected drag/resize gestures because the WebView2 child swallows mouse
 /// messages), this keeps native decorations, so dragging, resizing and closing
 /// come from the OS for free.
+///
+/// The hover link preview the Windows window gets back from WebView2's status bar
+/// has no counterpart here — WKWebView has neither a status bar nor a setting for
+/// one, so it would take a custom in-page overlay. Out of scope.
 #[cfg(target_os = "macos")]
 pub fn execute(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
     use tao::event::{Event, StartCause, WindowEvent};
