@@ -3,9 +3,11 @@
 //! Manages visibility, input, filtering, selection, and transitions
 //! independently of the GUI framework for testability.
 
+use crate::launcher::picker::PickerState;
 use crate::launcher::{
     eval_calc_input, filter_items, is_file_path, order_recent_keys, CalcResult, ListItem,
 };
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 /// The current input mode, derived from the input text.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,10 +59,18 @@ pub struct WindowState {
     /// Recently executed item keys (most recent first), used to show
     /// recents when input is empty.
     recent_keys: Vec<String>,
+    /// Active client/project picker; `Some` puts the launcher in picker mode.
+    pub picker: Option<PickerState>,
+    /// Message shown in the launcher's error banner.
+    pub error: Option<String>,
+    action_tx: Sender<String>,
+    action_rx: Receiver<String>,
+    pending_actions: usize,
 }
 
 impl WindowState {
     pub fn new(items: Vec<ListItem>, recent_keys: Vec<String>) -> Self {
+        let (action_tx, action_rx) = channel();
         let mut s = Self {
             input: String::new(),
             selected: 0,
@@ -70,6 +80,11 @@ impl WindowState {
             items,
             filtered_count: 0,
             recent_keys,
+            picker: None,
+            error: None,
+            action_tx,
+            action_rx,
+            pending_actions: 0,
         };
         s.update_filtered_count();
         s
@@ -82,6 +97,8 @@ impl WindowState {
         self.visibility = Visibility::Visible;
         self.had_focus = false;
         self.visible_frames = 0;
+        self.picker = None;
+        self.error = None;
         self.update_filtered_count();
     }
 
@@ -124,7 +141,82 @@ impl WindowState {
     pub fn set_input(&mut self, input: String) {
         self.input = input;
         self.selected = 0;
+        self.error = None;
         self.update_filtered_count();
+    }
+
+    /// Run `action` on a background thread, keeping the launcher responsive.
+    /// A failure comes back through the channel so [`poll_actions`] can show it
+    /// instead of losing it to a stderr no one sees in GUI mode.
+    ///
+    /// [`poll_actions`]: WindowState::poll_actions
+    pub fn spawn_action<F>(&mut self, action: F)
+    where
+        F: FnOnce() -> anyhow::Result<()> + Send + 'static,
+    {
+        let tx = self.action_tx.clone();
+        self.pending_actions += 1;
+        std::thread::spawn(move || {
+            let message = match action() {
+                Ok(()) => String::new(),
+                Err(e) => format!("{e:#}"),
+            };
+            let _ = tx.send(message);
+        });
+    }
+
+    pub fn has_pending_actions(&self) -> bool {
+        self.pending_actions > 0
+    }
+
+    /// Collect finished background actions, re-showing the window on failure.
+    pub fn poll_actions(&mut self) {
+        while let Ok(message) = self.action_rx.try_recv() {
+            self.pending_actions = self.pending_actions.saturating_sub(1);
+            if !message.is_empty() {
+                self.set_error(message);
+            }
+        }
+    }
+
+    /// Show `message` in the error banner, making the window visible again if
+    /// it was hidden by the action that failed.
+    pub fn set_error(&mut self, message: String) {
+        self.visibility = Visibility::Visible;
+        self.had_focus = false;
+        self.visible_frames = 0;
+        self.error = Some(message);
+    }
+
+    /// Enter client/project picker mode.
+    pub fn open_picker(&mut self, picker: PickerState) {
+        self.error = None;
+        self.picker = Some(picker);
+        self.reset_picker_cursor();
+    }
+
+    /// Leave picker mode, returning to the normal item list.
+    pub fn close_picker(&mut self) {
+        self.picker = None;
+        self.input.clear();
+        self.selected = 0;
+        self.update_filtered_count();
+    }
+
+    /// Step the picker back one stage. Returns `false` when already at the
+    /// client list, meaning the caller should leave picker mode.
+    pub fn picker_back(&mut self) -> bool {
+        let stepped = self.picker.as_mut().is_some_and(|picker| picker.back());
+        if stepped {
+            self.reset_picker_cursor();
+        }
+        stepped
+    }
+
+    /// Clear the picker filter and put the cursor on the current selection.
+    pub fn reset_picker_cursor(&mut self) {
+        self.input.clear();
+        self.selected = self.picker.as_ref().map(|p| p.cursor("")).unwrap_or(0);
     }
 
     /// Move selection down, clamped to the given count (or filtered_count if None).
@@ -241,6 +333,16 @@ impl WindowState {
     pub fn set_recent_keys(&mut self, keys: Vec<String>) {
         self.recent_keys = keys;
         self.update_filtered_count();
+    }
+
+    /// The [`ListItem`] behind the current selection, or `None` when the
+    /// selection is empty, out-of-bounds, or a non-Item entry.
+    pub fn selected_item(&self) -> Option<ListItem> {
+        let entries = self.filtered_entries();
+        match entries.get(self.selected)? {
+            FilteredEntry::Item(item) => Some(item.clone()),
+            _ => None,
+        }
     }
 
     /// Return the action input string for the currently selected Item entry.
@@ -845,6 +947,153 @@ mod tests {
         state.navigate_down(); // select "jira"
         let action = state.selected_action_input().unwrap();
         assert_eq!(action, "jira");
+    }
+
+    // --- Picker mode (backlog a935) ---
+
+    use crate::launcher::picker::PickerClient;
+
+    fn switch_item() -> ListItem {
+        ListItem {
+            key: "switch".to_string(),
+            display_detail: "project-switch.exe switch".to_string(),
+            kind: ListItemKind::Switch,
+            pinned: false,
+        }
+    }
+
+    fn sample_picker() -> PickerState {
+        PickerState::new(
+            vec![
+                PickerClient {
+                    name: "nero".to_string(),
+                    projects: vec![],
+                },
+                PickerClient {
+                    name: "EventsAir".to_string(),
+                    projects: vec!["Build & Deploy".to_string()],
+                },
+            ],
+            Some("EventsAir".to_string()),
+            None,
+        )
+    }
+
+    /// State showing the sample items plus a `switch` command, filtered to it.
+    fn state_on_switch_item() -> WindowState {
+        let mut items = sample_items();
+        items.push(switch_item());
+        let mut state = WindowState::new(items, vec![]);
+        state.show();
+        state.set_input("switch".to_string());
+        state
+    }
+
+    fn state_in_picker() -> WindowState {
+        let mut state = state_on_switch_item();
+        state.open_picker(sample_picker());
+        state
+    }
+
+    #[test]
+    fn selected_item_exposes_switch_kind() {
+        let state = state_on_switch_item();
+        assert_eq!(state.selected_item().unwrap().kind, ListItemKind::Switch);
+    }
+
+    #[test]
+    fn open_picker_clears_filter_and_targets_current_client() {
+        let state = state_in_picker();
+        assert!(state.picker.is_some());
+        assert_eq!(state.input, "");
+        assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn picker_back_from_projects_returns_to_clients() {
+        let mut state = state_in_picker();
+        let entries = state.picker.as_ref().unwrap().entries("");
+        state.picker.as_mut().unwrap().activate(&entries[1]);
+        assert!(state.picker_back());
+        assert!(state.picker.is_some());
+    }
+
+    #[test]
+    fn picker_back_at_client_stage_reports_top() {
+        let mut state = state_in_picker();
+        assert!(!state.picker_back());
+    }
+
+    #[test]
+    fn close_picker_restores_normal_list() {
+        let mut state = state_in_picker();
+        state.close_picker();
+        assert!(state.picker.is_none());
+        assert_eq!(state.input, "");
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.filtered_count(), 4);
+    }
+
+    #[test]
+    fn show_leaves_picker_mode() {
+        let mut state = state_in_picker();
+        state.show();
+        assert!(state.picker.is_none());
+    }
+
+    // --- Error surfacing (backlog a935) ---
+
+    #[test]
+    fn set_error_makes_hidden_window_visible() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.hide();
+        state.set_error("boom".to_string());
+        assert_eq!(state.visibility, Visibility::Visible);
+        assert_eq!(state.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn failed_action_surfaces_as_error() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.hide();
+        state.spawn_action(|| -> anyhow::Result<()> { anyhow::bail!("no command found") });
+        while state.has_pending_actions() {
+            state.poll_actions();
+        }
+        assert_eq!(state.error.as_deref(), Some("no command found"));
+        assert_eq!(state.visibility, Visibility::Visible);
+    }
+
+    #[test]
+    fn successful_action_leaves_window_hidden() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.hide();
+        state.spawn_action(|| -> anyhow::Result<()> { Ok(()) });
+        while state.has_pending_actions() {
+            state.poll_actions();
+        }
+        assert!(state.error.is_none());
+        assert_eq!(state.visibility, Visibility::Hidden);
+    }
+
+    #[test]
+    fn typing_dismisses_the_error() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.set_error("boom".to_string());
+        state.set_input("git".to_string());
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn show_clears_the_error() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.set_error("boom".to_string());
+        state.show();
+        assert!(state.error.is_none());
     }
 
     #[test]

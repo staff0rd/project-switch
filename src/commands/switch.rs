@@ -1,15 +1,63 @@
 use crate::config::ConfigManager;
+use crate::launcher::picker::{PickerClient, PickerEntry, PickerOutcome, PickerState};
 use anyhow::Result;
 use colored::*;
 use inquire::Select;
+
+/// Build the picker model from the current config. Used by the GUI launcher,
+/// which shows the same choices without an interactive terminal prompt.
+pub fn picker_state() -> Result<PickerState> {
+    Ok(build_picker(&ConfigManager::new()?))
+}
+
+fn build_picker(config_manager: &ConfigManager) -> PickerState {
+    let clients = config_manager
+        .get_clients()
+        .iter()
+        .map(|client| PickerClient {
+            name: client.name.clone(),
+            projects: client
+                .projects
+                .as_ref()
+                .map(|projects| projects.iter().map(|p| p.name.clone()).collect())
+                .unwrap_or_default(),
+        })
+        .collect();
+
+    PickerState::new(
+        clients,
+        config_manager.get_current_client().cloned(),
+        config_manager.get_current_project().cloned(),
+    )
+}
+
+/// Persist a picker choice, leaving the config untouched when it already
+/// matches the active selection.
+pub fn apply_selection(client: &str, project: Option<&str>) -> Result<()> {
+    let mut config_manager = ConfigManager::new()?;
+    if config_manager.get_current_client().map(String::as_str) == Some(client)
+        && config_manager.get_current_project().map(String::as_str) == project
+    {
+        return Ok(());
+    }
+    config_manager.set_current_selection(client, project)
+}
+
+fn format_option(entry: &PickerEntry) -> String {
+    if entry.is_current {
+        format!("▶ {} (current)", entry.label).green().to_string()
+    } else {
+        format!("  {}", entry.label)
+    }
+}
 
 pub fn execute() -> Result<()> {
     let mut config_manager = ConfigManager::new()?;
     let current_client = config_manager.get_current_client().cloned();
     let current_project = config_manager.get_current_project().cloned();
 
-    let clients = config_manager.get_clients();
-    if clients.is_empty() {
+    let mut picker = build_picker(&config_manager);
+    if picker.is_empty() {
         println!(
             "{}",
             "No clients found. Edit ~/.project-switch.yml to add one.".yellow()
@@ -17,95 +65,22 @@ pub fn execute() -> Result<()> {
         return Ok(());
     }
 
-    let options: Vec<String> = clients
-        .iter()
-        .map(|client| {
-            if Some(&client.name) == current_client.as_ref() {
-                format!("▶ {} (current)", client.name).green().to_string()
-            } else {
-                format!("  {}", client.name)
-            }
-        })
-        .collect();
+    let (selected_client, selected_project) = loop {
+        let entries = picker.entries("");
+        let options: Vec<String> = entries.iter().map(format_option).collect();
 
-    let client_names: Vec<String> = clients.iter().map(|c| c.name.clone()).collect();
+        let selected_option = Select::new(&format!("{}:", picker.title()), options.clone())
+            .with_starting_cursor(picker.cursor(""))
+            .prompt()?;
 
-    let starting_cursor = current_client
-        .as_ref()
-        .and_then(|current| client_names.iter().position(|name| name == current))
-        .unwrap_or(0);
-
-    let selected_option = Select::new("Select a client:", options.clone())
-        .with_starting_cursor(starting_cursor)
-        .prompt()?;
-
-    let selected_index = options
-        .iter()
-        .position(|opt| opt == &selected_option)
-        .unwrap();
-    let selected_client = client_names[selected_index].clone();
-
-    // If the selected client has nested projects, show a second prompt.
-    let nested_project_names: Vec<String> = config_manager
-        .get_client(&selected_client)
-        .and_then(|c| c.projects.as_ref())
-        .map(|projects| projects.iter().map(|p| p.name.clone()).collect())
-        .unwrap_or_default();
-
-    let selected_project: Option<String> = if nested_project_names.is_empty() {
-        None
-    } else {
-        let client_entry_label = format!("{} (client)", selected_client);
-        let mut sub_options: Vec<String> = Vec::with_capacity(nested_project_names.len() + 1);
-
-        let is_current_client_only = current_client.as_deref() == Some(selected_client.as_str())
-            && current_project.is_none();
-        sub_options.push(if is_current_client_only {
-            format!("▶ {} (current)", client_entry_label)
-                .green()
-                .to_string()
-        } else {
-            format!("  {}", client_entry_label)
-        });
-
-        for name in &nested_project_names {
-            let is_current = current_client.as_deref() == Some(selected_client.as_str())
-                && current_project.as_deref() == Some(name.as_str());
-            if is_current {
-                sub_options.push(format!("▶ {} (current)", name).green().to_string());
-            } else {
-                sub_options.push(format!("  {}", name));
-            }
-        }
-
-        let starting_cursor = if is_current_client_only {
-            0
-        } else if current_client.as_deref() == Some(selected_client.as_str()) {
-            current_project
-                .as_ref()
-                .and_then(|p| nested_project_names.iter().position(|n| n == p))
-                .map(|i| i + 1)
-                .unwrap_or(0)
-        } else {
-            0
-        };
-
-        let sub_selected = Select::new(
-            &format!("Select '{}' or a project:", selected_client),
-            sub_options.clone(),
-        )
-        .with_starting_cursor(starting_cursor)
-        .prompt()?;
-
-        let sub_index = sub_options
+        let selected_index = options
             .iter()
-            .position(|opt| opt == &sub_selected)
+            .position(|opt| opt == &selected_option)
             .unwrap();
 
-        if sub_index == 0 {
-            None
-        } else {
-            Some(nested_project_names[sub_index - 1].clone())
+        match picker.activate(&entries[selected_index]) {
+            PickerOutcome::Descended => continue,
+            PickerOutcome::Chosen { client, project } => break (client, project),
         }
     };
 

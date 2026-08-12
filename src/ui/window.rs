@@ -1,8 +1,23 @@
 //! egui launcher window — renders the text input and filtered list.
 
+use crate::launcher::picker::{PickerEntry, PickerOutcome};
 use crate::launcher::{get_path_entries, CalcResult, ListItemKind};
 use crate::ui::state::{FilteredEntry, InputMode, WindowState};
 use eframe::egui;
+
+const ERROR_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 110, 110);
+const CURRENT_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 200, 100);
+
+/// Keep the highlighted row on screen when the keyboard moved the selection.
+fn keep_selected_visible(response: &egui::Response, is_selected: bool, key_moved: bool) {
+    if is_selected && key_moved {
+        response.scroll_to_me(Some(egui::Align::Center));
+    }
+}
+
+fn empty_list_label(ui: &mut egui::Ui, message: &str) {
+    ui.label(egui::RichText::new(message).color(egui::Color32::GRAY));
+}
 
 fn set_path_input(state: &mut WindowState, prev_input: &mut String, path: &str) {
     state.input = path.to_string();
@@ -13,11 +28,7 @@ fn set_path_input(state: &mut WindowState, prev_input: &mut String, path: &str) 
 
 fn open_path_and_hide(state: &mut WindowState, path: String) {
     state.hide();
-    std::thread::spawn(move || {
-        if let Err(e) = crate::commands::list::execute_action(&path) {
-            eprintln!("Action error: {e:#}");
-        }
-    });
+    state.spawn_action(move || crate::commands::list::execute_action(&path));
 }
 
 fn execute_and_hide(state: &mut WindowState, action_input: &str) {
@@ -26,11 +37,96 @@ fn execute_and_hide(state: &mut WindowState, action_input: &str) {
     }
     let input = action_input.to_string();
     state.hide();
-    std::thread::spawn(move || {
-        if let Err(e) = crate::commands::list::execute_action(&input) {
-            eprintln!("Action error: {e:#}");
+    state.spawn_action(move || crate::commands::list::execute_action(&input));
+}
+
+/// Enter the in-window client/project picker. The terminal `switch` prompt
+/// can't run here — the launcher window has no console attached.
+fn open_switch_picker(state: &mut WindowState, prev_input: &mut String, item_key: &str) {
+    match crate::commands::switch::picker_state() {
+        Ok(picker) => {
+            crate::history::record(item_key).ok();
+            state.open_picker(picker);
+            *prev_input = state.input.clone();
+        }
+        Err(e) => state.set_error(format!("{e:#}")),
+    }
+}
+
+fn activate_picker_entry(state: &mut WindowState, prev_input: &mut String, entry: &PickerEntry) {
+    let Some(outcome) = state.picker.as_mut().map(|picker| picker.activate(entry)) else {
+        return;
+    };
+    match outcome {
+        PickerOutcome::Descended => {
+            state.reset_picker_cursor();
+            *prev_input = state.input.clone();
+        }
+        PickerOutcome::Chosen { client, project } => {
+            state.close_picker();
+            *prev_input = state.input.clone();
+            state.hide();
+            state.spawn_action(move || {
+                crate::commands::switch::apply_selection(&client, project.as_deref())
+            });
+        }
+    }
+}
+
+fn render_picker(
+    ui: &mut egui::Ui,
+    state: &mut WindowState,
+    prev_input: &mut String,
+    key_down: bool,
+    key_up: bool,
+    key_enter: bool,
+) {
+    let entries = match &state.picker {
+        Some(picker) => picker.entries(&state.input),
+        None => return,
+    };
+
+    if key_down {
+        state.navigate_down_bounded(entries.len());
+    }
+    if key_up {
+        state.navigate_up();
+    }
+    let selected = state.selected.min(entries.len().saturating_sub(1));
+
+    if key_enter {
+        if let Some(entry) = entries.get(selected) {
+            activate_picker_entry(state, prev_input, entry);
+        }
+        return;
+    }
+
+    let mut clicked: Option<PickerEntry> = None;
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for (i, entry) in entries.iter().enumerate() {
+            let is_selected = i == selected;
+            let mut text = if entry.is_current {
+                egui::RichText::new(format!("▶ {} (current)", entry.label)).color(CURRENT_COLOR)
+            } else {
+                egui::RichText::new(format!("   {}", entry.label))
+            };
+            if is_selected {
+                text = text.strong();
+            }
+            let response = ui.selectable_label(is_selected, text);
+            if response.clicked() {
+                clicked = Some(entry.clone());
+            }
+            keep_selected_visible(&response, is_selected, key_down || key_up);
+        }
+        if entries.is_empty() {
+            empty_list_label(ui, "No clients found");
         }
     });
+
+    if let Some(entry) = clicked {
+        activate_picker_entry(state, prev_input, &entry);
+    }
 }
 
 /// Render the launcher UI inside a CentralPanel. Shared by both standalone and daemon modes.
@@ -47,10 +143,14 @@ pub fn render_launcher(
         if response.dragged() {
             ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
+        let title = match &state.picker {
+            Some(picker) => picker.title(),
+            None => project_name.to_string(),
+        };
         ui.painter().text(
             title_rect.left_center() + egui::vec2(4.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            project_name,
+            &title,
             egui::FontId::proportional(16.0),
             egui::Color32::GRAY,
         );
@@ -79,11 +179,27 @@ pub fn render_launcher(
         let key_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
 
         if key_escape {
-            state.hide();
+            if state.picker.is_some() {
+                if !state.picker_back() {
+                    state.close_picker();
+                }
+                *prev_input = state.input.clone();
+            } else {
+                state.hide();
+            }
             return;
         }
 
+        if let Some(error) = state.error.clone() {
+            ui.label(egui::RichText::new(error).color(ERROR_COLOR));
+        }
+
         ui.separator();
+
+        if state.picker.is_some() {
+            render_picker(ui, state, prev_input, key_down, key_up, key_enter);
+            return;
+        }
 
         match state.input_mode() {
             InputMode::Calculator { result } => {
@@ -156,14 +272,10 @@ pub fn render_launcher(
                         if response.clicked() {
                             set_path_input(state, prev_input, &entry.full_path);
                         }
-                        if is_selected && (key_down || key_up) {
-                            response.scroll_to_me(Some(egui::Align::Center));
-                        }
+                        keep_selected_visible(&response, is_selected, key_down || key_up);
                     }
                     if entries.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No entries found").color(egui::Color32::GRAY),
-                        );
+                        empty_list_label(ui, "No entries found");
                     }
                 });
             }
@@ -216,8 +328,17 @@ pub fn render_launcher(
                 let selected = state.selected;
 
                 if key_enter && !entries.is_empty() && selected < entries.len() {
-                    if let Some(action) = state.selected_action_input() {
-                        execute_and_hide(state, &action);
+                    let is_switch = state
+                        .selected_item()
+                        .filter(|item| item.kind == ListItemKind::Switch)
+                        .map(|item| item.key);
+                    match is_switch {
+                        Some(key) => open_switch_picker(state, prev_input, &key),
+                        None => {
+                            if let Some(action) = state.selected_action_input() {
+                                execute_and_hide(state, &action);
+                            }
+                        }
                     }
                     return;
                 }
@@ -232,7 +353,7 @@ pub fn render_launcher(
 
                         let label = match entry {
                             FilteredEntry::Item(item) => match &item.kind {
-                                ListItemKind::Command => {
+                                ListItemKind::Command | ListItemKind::Switch => {
                                     let detail = if item.display_detail.len() > 50 {
                                         format!("{}...", &item.display_detail[..47])
                                     } else {
@@ -279,9 +400,7 @@ pub fn render_launcher(
 
                         let response = ui.selectable_label(is_selected, label);
 
-                        if is_selected && (key_down || key_up) {
-                            response.scroll_to_me(Some(egui::Align::Center));
-                        }
+                        keep_selected_visible(&response, is_selected, key_down || key_up);
                     }
                 });
             }
@@ -335,6 +454,13 @@ impl eframe::App for LauncherApp {
             }
         }
 
+        // Keep polling while a dispatched action is still running so its
+        // failure can reach the window.
+        self.state.poll_actions();
+        if self.state.has_pending_actions() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+
         // Hide on focus loss (focused → unfocused transition only).
         let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
         self.state.hide_on_focus_loss(focused);
@@ -345,6 +471,12 @@ impl eframe::App for LauncherApp {
         }
 
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+
+        // A failed action re-shows the window after the startup focus window
+        // has passed, so ask for focus again while the error is on screen.
+        if self.state.error.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
 
         // On the first rendered frame, reposition the window onto the
         // target monitor.  The window starts off-screen (see launcher_options)

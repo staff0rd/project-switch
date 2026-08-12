@@ -1,7 +1,8 @@
 use crate::config::ConfigManager;
 use crate::launcher::{
-    encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path, merge_args,
-    order_recent_keys, resolve_item, strip_ansi_codes, CalcResult, ListItem, ListItemKind,
+    encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path,
+    is_switch_command, merge_args, order_recent_keys, resolve_item, strip_ansi_codes, CalcResult,
+    ListItem, ListItemKind,
 };
 use crate::utils::browser;
 use crate::utils::shortcuts;
@@ -30,7 +31,7 @@ const APP_PREFIX: &str = "[app] ";
 
 fn format_suggestion(item: &ListItem) -> String {
     match &item.kind {
-        ListItemKind::Command => {
+        ListItemKind::Command | ListItemKind::Switch => {
             let truncated = if item.display_detail.len() > 60 {
                 format!("{}...", &item.display_detail[..57])
             } else {
@@ -174,6 +175,13 @@ pub fn selection_display_name(config_manager: &ConfigManager) -> String {
     }
 }
 
+fn command_kind(cmd: &crate::config::ProjectCommand) -> ListItemKind {
+    match cmd.command.as_deref() {
+        Some(command) if is_switch_command(command, cmd.args.as_deref()) => ListItemKind::Switch,
+        _ => ListItemKind::Command,
+    }
+}
+
 /// Load only command items from config (fast — no filesystem scanning).
 /// Effective command set precedence when a project is active:
 /// project > client > global.
@@ -208,7 +216,7 @@ fn load_command_items(
                 .clone()
                 .or_else(|| cmd.command.clone())
                 .unwrap_or_default(),
-            kind: ListItemKind::Command,
+            kind: command_kind(cmd),
             pinned: cmd.pinned,
         })
         .collect();
@@ -280,6 +288,11 @@ pub fn execute_action(input: &str) -> Result<()> {
             match &item.kind {
                 ListItemKind::Shortcut { path } => {
                     browser::launch_shortcut(path, false)?;
+                }
+                // Run the prompt in-process rather than spawning a nested
+                // process just to re-enter this binary.
+                ListItemKind::Switch => {
+                    crate::commands::switch::execute()?;
                 }
                 ListItemKind::Command => {
                     let selected_command = sorted_commands

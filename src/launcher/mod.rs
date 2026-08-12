@@ -1,11 +1,18 @@
 //! Shared launcher data model — filtering, matching, item types.
 //! Used by both the CLI `list` command and the windowed GUI launcher.
 
+pub mod picker;
+
 /// The kind of item in the launcher list.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListItemKind {
     Command,
-    Shortcut { path: String },
+    /// A command that re-invokes this program's own interactive `switch`
+    /// prompt; handled by the launcher itself rather than spawned.
+    Switch,
+    Shortcut {
+        path: String,
+    },
 }
 
 /// A single item in the launcher list.
@@ -42,6 +49,51 @@ pub fn merge_args(cmd_args: Option<&str>, user_args: Option<&str>) -> Option<Str
         (None, Some(u)) => Some(u.to_string()),
         (None, None) => None,
     }
+}
+
+/// Split a command line into tokens, treating a double-quoted run as one token.
+fn split_command_tokens(command: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for ch in command.chars() {
+        match ch {
+            '"' => quoted = !quoted,
+            c if c.is_whitespace() && !quoted => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Whether a configured command does nothing but re-invoke this program's
+/// interactive `switch` prompt. Those need a terminal, which the windowed
+/// launcher has none of, so it runs its own picker instead of spawning them.
+pub fn is_switch_command(command: &str, args: Option<&str>) -> bool {
+    let full = match args.filter(|a| !a.trim().is_empty()) {
+        Some(args) => format!("{} {}", command, args),
+        None => command.to_string(),
+    };
+    let tokens = split_command_tokens(&full);
+    let [program, subcommand] = tokens.as_slice() else {
+        return false;
+    };
+    if !subcommand.eq_ignore_ascii_case("switch") {
+        return false;
+    }
+    // Normalize so Windows-style paths also split on non-Windows builds.
+    let program = program.replace('\\', "/");
+    std::path::Path::new(&program)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem.eq_ignore_ascii_case("project-switch"))
 }
 
 /// Strip ANSI escape codes from a string.
@@ -454,6 +506,70 @@ mod tests {
     #[test]
     fn strip_ansi_preserves_plain_text() {
         assert_eq!(strip_ansi_codes("hello world"), "hello world");
+    }
+
+    // --- is_switch_command ---
+
+    #[test]
+    fn is_switch_command_bare_exe() {
+        assert!(is_switch_command("project-switch.exe switch", None));
+        assert!(is_switch_command("project-switch switch", None));
+    }
+
+    #[test]
+    fn is_switch_command_full_path() {
+        assert!(is_switch_command(
+            "C:\\tools\\bin\\project-switch.exe switch",
+            None
+        ));
+        assert!(is_switch_command(
+            "/usr/local/bin/project-switch switch",
+            None
+        ));
+    }
+
+    #[test]
+    fn is_switch_command_quoted_path_with_spaces() {
+        assert!(is_switch_command(
+            "\"C:\\Program Files\\project-switch.exe\" switch",
+            None
+        ));
+    }
+
+    #[test]
+    fn is_switch_command_subcommand_from_args() {
+        assert!(is_switch_command("project-switch.exe", Some("switch")));
+    }
+
+    #[test]
+    fn is_switch_command_case_insensitive() {
+        assert!(is_switch_command("Project-Switch.EXE SWITCH", None));
+    }
+
+    #[test]
+    fn is_switch_command_rejects_other_subcommands() {
+        assert!(!is_switch_command("project-switch.exe list", None));
+        assert!(!is_switch_command("project-switch.exe current", None));
+    }
+
+    #[test]
+    fn is_switch_command_rejects_other_programs() {
+        assert!(!is_switch_command("git switch", None));
+        assert!(!is_switch_command("other-switch.exe switch", None));
+    }
+
+    #[test]
+    fn is_switch_command_rejects_extra_tokens() {
+        assert!(!is_switch_command(
+            "project-switch.exe switch && echo done",
+            None
+        ));
+        assert!(!is_switch_command("project-switch.exe switch", Some("--x")));
+    }
+
+    #[test]
+    fn is_switch_command_rejects_bare_program() {
+        assert!(!is_switch_command("project-switch.exe", None));
     }
 
     // --- is_file_path ---
