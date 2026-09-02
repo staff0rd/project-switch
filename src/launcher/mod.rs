@@ -339,7 +339,22 @@ pub fn order_recent_keys(recent_keys: &[String], items: &[ListItem]) -> Vec<Stri
     ordered
 }
 
-/// Filter a list of items by query string, returning matching items in order.
+/// Relevance tier of a key against a lowercased query: exact match, then
+/// prefix match, then mid-string match.
+fn match_rank(key: &str, keyword_lower: &str) -> u8 {
+    let key_lower = key.to_lowercase();
+    if key_lower == keyword_lower {
+        0
+    } else if key_lower.starts_with(keyword_lower) {
+        1
+    } else {
+        2
+    }
+}
+
+/// Filter a list of items by query string, returning matching items ranked by
+/// relevance (exact key match, then prefix, then mid-string), preserving source
+/// order within each tier.
 /// When the query contains a space (i.e. keyword + args), use exact key match
 /// so that "g some text" only matches a "g" key, not everything containing "g".
 pub fn filter_items<'a>(items: &'a [ListItem], query: &str) -> Vec<&'a ListItem> {
@@ -347,17 +362,20 @@ pub fn filter_items<'a>(items: &'a [ListItem], query: &str) -> Vec<&'a ListItem>
         items.iter().collect()
     } else {
         let keyword = query.split_whitespace().next().unwrap_or(query);
+        let keyword_lower = keyword.to_lowercase();
         let has_args = query.contains(' ');
-        items
+        let mut matched: Vec<&ListItem> = items
             .iter()
             .filter(|item| {
                 if has_args {
-                    item.key.to_lowercase() == keyword.to_lowercase()
+                    item.key.to_lowercase() == keyword_lower
                 } else {
                     item.matches(keyword)
                 }
             })
-            .collect()
+            .collect();
+        matched.sort_by_key(|item| match_rank(&item.key, &keyword_lower));
+        matched
     }
 }
 
@@ -399,10 +417,13 @@ pub fn resolve_item<'a>(
         return Some((item, args));
     }
 
-    // Partial match fallback
+    // Partial match fallback, ranked the same way as the launcher list so the
+    // resolved item matches the first suggestion shown.
+    let keyword_lower = keyword.to_lowercase();
     if let Some(item) = items
         .iter()
-        .find(|item| item.key.to_lowercase().contains(&keyword.to_lowercase()))
+        .filter(|item| item.key.to_lowercase().contains(&keyword_lower))
+        .min_by_key(|item| match_rank(&item.key, &keyword_lower))
     {
         return Some((item, args));
     }
@@ -785,6 +806,56 @@ mod tests {
         assert_eq!(filtered[0].key, "g");
     }
 
+    #[test]
+    fn filter_items_ranks_exact_match_first() {
+        assert_eq!(
+            ranked_keys("me"),
+            vec!["me", "mercury", "commercials", "home"]
+        );
+    }
+
+    #[test]
+    fn filter_items_ranks_prefix_above_mid_string() {
+        assert_eq!(ranked_keys("mer"), vec!["mercury", "commercials"]);
+    }
+
+    #[test]
+    fn filter_items_keeps_source_order_within_tier() {
+        // "me"/"mercury" both prefix-match, "commercials"/"home" both mid-match;
+        // each pair must stay in the alphabetical source order.
+        assert_eq!(
+            ranked_keys("m"),
+            vec!["me", "mercury", "commercials", "home"]
+        );
+    }
+
+    fn ranked_keys(query: &str) -> Vec<String> {
+        filter_items(&ranking_items(), query)
+            .iter()
+            .map(|item| item.key.clone())
+            .collect()
+    }
+
+    #[test]
+    fn filter_items_ranking_is_case_insensitive() {
+        let items = ranking_items();
+        let filtered = filter_items(&items, "ME");
+        assert_eq!(filtered[0].key, "me");
+    }
+
+    /// Alphabetical by key, matching how the real list is built.
+    fn ranking_items() -> Vec<ListItem> {
+        ["commercials", "home", "me", "mercury"]
+            .iter()
+            .map(|key| ListItem {
+                key: key.to_string(),
+                display_detail: String::new(),
+                kind: ListItemKind::Command,
+                pinned: false,
+            })
+            .collect()
+    }
+
     // --- resolve_item ---
 
     #[test]
@@ -831,6 +902,17 @@ mod tests {
         let items = sample_items();
         let (item, _) = resolve_item(&items, "git").unwrap();
         assert_eq!(item.key, "github");
+    }
+
+    /// The partial fallback must agree with the ranked list the user is looking
+    /// at: "mer" shows "mercury" first, so Enter must resolve to it and not to
+    /// the alphabetically earlier "commercials".
+    #[test]
+    fn resolve_item_partial_match_prefers_prefix_over_mid_string() {
+        let items = ranking_items();
+        let (item, _) = resolve_item(&items, "mer").unwrap();
+        assert_eq!(item.key, "mercury");
+        assert_eq!(item.key, filter_items(&items, "mer")[0].key);
     }
 
     #[test]
