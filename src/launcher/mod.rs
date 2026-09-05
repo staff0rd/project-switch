@@ -268,8 +268,8 @@ pub fn get_path_entries(input: &str) -> Vec<PathEntry> {
             }
         }
 
-        dirs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
-        files.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+        dirs.sort_by_key(|a| a.1.to_lowercase());
+        files.sort_by_key(|a| a.1.to_lowercase());
 
         for (full, _) in &dirs {
             // Without trailing \ = open the directory
