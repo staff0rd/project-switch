@@ -124,29 +124,73 @@ fn show_error_dialog(msg: &str) {
 fn show_error_dialog(msg: &str) {
     use std::process::Command;
 
-    let text = applescript_escape(&format!("Error: {msg}\n\nOpen config file in editor?"));
-    let script = format!(
-        "display dialog \"{text}\" with title \"project-switch\" \
-         buttons {{\"Cancel\", \"Open Config\"}} default button \"Open Config\" \
-         cancel button \"Cancel\" with icon stop"
-    );
+    let mut copied = false;
+    loop {
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(error_dialog_script(msg, copied))
+            .output();
 
-    let output = Command::new("osascript").arg("-e").arg(script).output();
-    let opened = match output {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).contains("Open Config"),
-        Err(e) => {
-            eprintln!("\nError: {msg}");
-            utils::log::append_error(&format!("Failed to show error dialog: {e}"));
-            return;
-        }
-    };
-
-    if opened {
-        if let Some(path) = dirs::home_dir().map(|h| h.join(".project-switch.yml")) {
-            // `code` is usually off PATH when launched from the tray.
-            if Command::new("code").arg(&path).spawn().is_err() {
-                let _ = Command::new("open").arg("-t").arg(&path).spawn();
+        let button = match output {
+            Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
+            Err(e) => {
+                eprintln!("\nError: {msg}");
+                utils::log::append_error(&format!("Failed to show error dialog: {e}"));
+                return;
             }
+        };
+
+        // Dialog text is static and unselectable, so copying is the only way out with the message.
+        if button.contains("Copy Error") {
+            copy_to_clipboard(msg);
+            copied = true;
+            continue;
+        }
+
+        if button.contains("Open Config") {
+            open_config_in_editor();
+        }
+        return;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn error_dialog_script(msg: &str, copied: bool) -> String {
+    let note = if copied {
+        "\n\nCopied to clipboard."
+    } else {
+        ""
+    };
+    let text = applescript_escape(&format!("Error: {msg}{note}"));
+    format!(
+        "display dialog \"{text}\" with title \"project-switch\" \
+         buttons {{\"Copy Error\", \"Cancel\", \"Open Config\"}} default button \"Open Config\" \
+         cancel button \"Cancel\" with icon stop"
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn copy_to_clipboard(msg: &str) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let Ok(mut child) = Command::new("pbcopy").stdin(Stdio::piped()).spawn() else {
+        return;
+    };
+    if let Some(stdin) = child.stdin.as_mut() {
+        let _ = stdin.write_all(msg.as_bytes());
+    }
+    let _ = child.wait();
+}
+
+#[cfg(target_os = "macos")]
+fn open_config_in_editor() {
+    use std::process::Command;
+
+    if let Some(path) = dirs::home_dir().map(|h| h.join(".project-switch.yml")) {
+        // `code` is usually off PATH when launched from the tray.
+        if Command::new("code").arg(&path).spawn().is_err() {
+            let _ = Command::new("open").arg("-t").arg(&path).spawn();
         }
     }
 }
