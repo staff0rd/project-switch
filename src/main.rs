@@ -120,7 +120,46 @@ fn show_error_dialog(msg: &str) {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn show_error_dialog(msg: &str) {
+    use std::process::Command;
+
+    let text = applescript_escape(&format!("Error: {msg}\n\nOpen config file in editor?"));
+    let script = format!(
+        "display dialog \"{text}\" with title \"project-switch\" \
+         buttons {{\"Cancel\", \"Open Config\"}} default button \"Open Config\" \
+         cancel button \"Cancel\" with icon stop"
+    );
+
+    let output = Command::new("osascript").arg("-e").arg(script).output();
+    let opened = match output {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).contains("Open Config"),
+        Err(e) => {
+            eprintln!("\nError: {msg}");
+            utils::log::append_error(&format!("Failed to show error dialog: {e}"));
+            return;
+        }
+    };
+
+    if opened {
+        if let Some(path) = dirs::home_dir().map(|h| h.join(".project-switch.yml")) {
+            // `code` is usually off PATH when launched from the tray.
+            if Command::new("code").arg(&path).spawn().is_err() {
+                let _ = Command::new("open").arg("-t").arg(&path).spawn();
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\r', "")
+        .replace('\n', "\\n")
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn show_error_dialog(msg: &str) {
     eprintln!("\nError: {msg}");
 }
