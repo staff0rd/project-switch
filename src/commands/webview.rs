@@ -414,6 +414,7 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
         .context("Failed to create WebView2 window")?;
 
     enable_status_bar(&webview);
+    let _ = webview.focus();
 
     let toast_proxy = event_loop.create_proxy();
 
@@ -452,6 +453,12 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
                 WindowEvent::Resized(new_size) => {
                     let _ = webview.set_bounds(fill_bounds(new_size));
                     save_geometry(&window);
+                }
+                // Foregrounding the host (e.g. the hotkey summoning this window)
+                // leaves focus on the host HWND, so page hotkeys are dead until
+                // the child webview is handed focus explicitly.
+                WindowEvent::Focused(true) => {
+                    let _ = webview.focus();
                 }
                 _ => {}
             },
