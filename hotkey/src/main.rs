@@ -10,6 +10,7 @@ mod log;
 mod platform;
 mod sync;
 mod webserver;
+mod webserver_menu;
 
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
@@ -19,6 +20,7 @@ use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, Submenu};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::TrayIconBuilder;
+use webserver_menu::WebserverSlot;
 
 enum UserEvent {
     Hotkey(global_hotkey::GlobalHotKeyEvent),
@@ -92,59 +94,25 @@ fn main() {
     let shortcuts_enabled = config::read_shortcuts_enabled();
     let shortcuts_item = CheckMenuItem::new("Shortcuts", true, shortcuts_enabled, None);
     let shortcuts_id = shortcuts_item.id().clone();
-    let webserver_enabled = config::read_webserver_enabled();
-    let webserver_submenu = Submenu::new("Webserver", true);
-    let webserver_item = CheckMenuItem::new("Enabled", true, webserver_enabled, None);
-    let webserver_id = webserver_item.id().clone();
-    let webserver_restart_item = MenuItem::new("Restart", true, None);
-    let webserver_restart_id = webserver_restart_item.id().clone();
-    let webserver_open_item = MenuItem::new("Open in browser", true, None);
-    let webserver_open_id = webserver_open_item.id().clone();
-    let webserver_logs_item = MenuItem::new("View logs", true, None);
-    let webserver_logs_id = webserver_logs_item.id().clone();
-    webserver_submenu
-        .append(&webserver_item)
-        .expect("Failed to add webserver item");
-    webserver_submenu
-        .append(&webserver_restart_item)
-        .expect("Failed to add webserver item");
-    webserver_submenu
-        .append(&webserver_open_item)
-        .expect("Failed to add webserver item");
-    webserver_submenu
-        .append(&webserver_logs_item)
-        .expect("Failed to add webserver item");
+    let mut webservers: Vec<WebserverSlot> = config::read_webservers()
+        .into_iter()
+        .map(WebserverSlot::new)
+        .collect();
     let exit_item = MenuItem::new("Exit", true, None);
     let exit_id = exit_item.id().clone();
     menu.append(&open_item).expect("Failed to add menu item");
     menu.append(&shortcuts_item).expect("Failed to add menu item");
-    menu.append(&webserver_submenu)
-        .expect("Failed to add menu item");
+    for slot in &webservers {
+        menu.append(slot.submenu())
+            .expect("Failed to add menu item");
+    }
     menu.append(&monitor_submenu)
         .expect("Failed to add menu item");
     menu.append(&exit_item).expect("Failed to add menu item");
 
-    let webserver_command = config::read_webserver_command();
-    let webserver_distro = config::read_webserver_distro();
-    let webserver_port = config::read_webserver_port();
-
-    let mut webserver_child = if webserver_enabled {
-        webserver::stop_webserver(
-            None,
-            &webserver_command,
-            webserver_distro.as_deref(),
-            webserver_port,
-        );
-        match webserver::spawn_webserver(&webserver_command, webserver_distro.as_deref()) {
-            Ok(child) => Some(child),
-            Err(e) => {
-                eprintln!("Failed to start webserver: {e}");
-                None
-            }
-        }
-    } else {
-        None
-    };
+    for slot in &mut webservers {
+        slot.start_if_enabled();
+    }
 
     let mut tray_icon = None;
     let mut current_monitor = saved_monitor;
@@ -189,58 +157,18 @@ fn main() {
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
+                if webservers.iter_mut().any(|slot| slot.handle(event.id())) {
+                    return;
+                }
                 if event.id() == &open_id {
                     platform::launch_project_switch(&project_switch, current_monitor);
                 } else if event.id() == &shortcuts_id {
                     let new_value = config::toggle_shortcuts_enabled();
                     shortcuts_item.set_checked(new_value);
-                } else if event.id() == &webserver_id {
-                    let new_value = config::toggle_webserver_enabled();
-                    webserver_item.set_checked(new_value);
-                    if new_value {
-                        match webserver::spawn_webserver(
-                            &webserver_command,
-                            webserver_distro.as_deref(),
-                        ) {
-                            Ok(child) => webserver_child = Some(child),
-                            Err(e) => eprintln!("Failed to start webserver: {e}"),
-                        }
-                    } else {
-                        webserver::stop_webserver(
-                            webserver_child.take(),
-                            &webserver_command,
-                            webserver_distro.as_deref(),
-                            webserver_port,
-                        );
-                    }
-                } else if event.id() == &webserver_restart_id {
-                    webserver::stop_webserver(
-                        webserver_child.take(),
-                        &webserver_command,
-                        webserver_distro.as_deref(),
-                        webserver_port,
-                    );
-                    match webserver::spawn_webserver(
-                        &webserver_command,
-                        webserver_distro.as_deref(),
-                    ) {
-                        Ok(child) => {
-                            webserver_child = Some(child);
-                            webserver_item.set_checked(true);
-                        }
-                        Err(e) => eprintln!("Failed to restart webserver: {e}"),
-                    }
-                } else if event.id() == &webserver_open_id {
-                    webserver::open_webserver_url(webserver_port);
-                } else if event.id() == &webserver_logs_id {
-                    webserver::launch_log_tail();
                 } else if event.id() == &exit_id {
-                    webserver::stop_webserver(
-                        webserver_child.take(),
-                        &webserver_command,
-                        webserver_distro.as_deref(),
-                        webserver_port,
-                    );
+                    for slot in &mut webservers {
+                        slot.stop();
+                    }
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
                 } else {

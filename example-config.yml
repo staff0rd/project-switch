@@ -2,12 +2,18 @@ currentClient: myapp
 currentProject: web  # Optional nested project within the current client
 defaultBrowser: firefox  # Global default browser
 
-# Tray-managed WSL assist webserver (Windows only)
-webserver:
-  enabled: false                 # Set to true to let the tray own the assist webserver lifecycle
-  command: assist --no-open      # Command run inside WSL via `bash -lc "exec <command>"`
-  distro: ""                     # WSL distro to use (empty = default WSL distro)
-  port: 3100                     # Port the command binds; drives the open-in-browser URL and stop check
+webservers:
+  - name: pc-wsl
+    enabled: false
+    target: wsl
+    distro: ""
+    command: assist --no-open
+    port: 3100
+  - name: pc-windows
+    enabled: false
+    target: native
+    command: assist sessions web --no-open --port 3101
+    port: 3101
 
 # Windows Desktop/Start Menu shortcut indexing
 shortcuts:

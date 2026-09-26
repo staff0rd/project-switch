@@ -112,29 +112,32 @@ See `example-include-config.yml` for a full shared config example.
 
 ## Webserver
 
-The `project-switch-hotkey` tray app can manage a background webserver (the assist UI). Configure it under a `webserver` key in `~/.project-switch.yml`:
+The `project-switch-hotkey` tray app can manage background webservers (the assist UI). Configure them as a `webservers` list in `~/.project-switch.yml`; each gets its own tray submenu (Enabled, Restart, Open in browser, View logs):
 
 ```yaml
-webserver:
-  enabled: true
-  command: assist --no-open   # default
-  distro: Ubuntu              # optional; Windows only, uses the default WSL distro if omitted
-  port: 3100                  # optional; drives the "Open in browser" URL and the stop check
+webservers:
+  - name: pc-wsl
+    enabled: true
+    target: wsl                 # runs inside WSL (Windows only)
+    distro: Ubuntu              # optional; uses the default WSL distro if omitted
+    command: assist --no-open   # default
+    port: 3100                  # default; drives "Open in browser" and the running check / stop
+  - name: pc-windows
+    enabled: true
+    target: native              # runs on the host itself
+    command: assist sessions web --no-open --port 3101
+    port: 3101
 ```
 
-The `command` binds the port, so to move it you must set both: point the command at the port and match `port`. The bare `assist --no-open` is fixed to 3100 — use the subcommand form to choose a port:
+`target` defaults to `wsl` on Windows and `native` elsewhere. A `wsl` server runs via a WSL login shell (`bash -lc`); a `native` server runs through `pwsh` on Windows and your login shell (`$SHELL -ilc`) on macOS.
 
-```yaml
-webserver:
-  enabled: true
-  command: assist sessions web --no-open --port 3101
-  distro: Ubuntu
-  port: 3101
-```
+Each server is checked and stopped by the port it listens on, so every server needs its own `port`. The `command` binds the port, so to move it you must set both: point the command at the port and match `port`. The bare `assist --no-open` is fixed to 3100 — use the subcommand form to choose a port. Separate ports also let two Windows accounts each run their own webserver without colliding on the shared host port (relevant under WSL mirrored networking, where a port bound in one account's WSL is visible machine-wide).
 
-This lets two Windows accounts each run their own webserver without colliding on the shared host port (relevant under WSL mirrored networking, where a port bound in one account's WSL is visible machine-wide).
+Each server logs to `assist-<name>.log` in `%LOCALAPPDATA%\project-switch` (Windows) or `~/Library/Logs/project-switch` (macOS).
 
-On Windows the webserver runs inside WSL via a login shell (`bash -lc`); on macOS it runs through your login shell (`$SHELL -ilc`). Because a login shell sources your `.profile`, any blocking setup there (for example an ssh-agent / SSL-key unlock step) can hang or fail at boot and take the webserver down.
+The older single `webserver` key (same fields minus `name`, logging to `assist.log`) is still read when `webservers` is absent.
+
+Because a login shell sources your `.profile`, any blocking setup there (for example an ssh-agent / SSL-key unlock step) can hang or fail at boot and take the webserver down.
 
 When launching the webserver, the tray sets `PROJECT_SWITCH_WEBSERVER=1` in the shell's environment before the profile is sourced. Guard only the passphrase prompt, not the whole ssh-agent setup — the webserver must still attach to your persistent agent so git can reach the key once it is unlocked. With [keychain](https://www.funtoo.org/Keychain), use `--noask` for the webserver:
 

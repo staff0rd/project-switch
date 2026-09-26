@@ -47,6 +47,17 @@ pub struct WebserverConfig {
     pub port: Option<u16>,
 }
 
+/// One entry of the tray-managed `webservers` list; like [`WebserverConfig`],
+/// the CLI only round-trips it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WebserverEntryConfig {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(flatten)]
+    pub settings: WebserverConfig,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectCommand {
@@ -114,6 +125,8 @@ pub struct Config {
     pub shortcuts: Option<ShortcutsConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webserver: Option<WebserverConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webservers: Option<Vec<WebserverEntryConfig>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -208,6 +221,11 @@ fn merge_configs(base: Config, overlay: Config) -> Config {
             overlay.webserver
         } else {
             base.webserver
+        },
+        webservers: if overlay.webservers.is_some() {
+            overlay.webservers
+        } else {
+            base.webservers
         },
         monitor: overlay.monitor.or(base.monitor),
         clients: merge_client_lists(base.clients, overlay.clients),
@@ -495,6 +513,7 @@ impl ConfigManager {
                 global: self.config.global.clone(),
                 shortcuts: self.config.shortcuts.clone(),
                 webserver: self.config.webserver.clone(),
+                webservers: self.config.webservers.clone(),
                 monitor: self.config.monitor,
                 clients: self.local_clients.clone(),
             };
@@ -767,6 +786,34 @@ clients:
         assert!(parsed.pinned);
         let yaml = serde_yaml::to_string(&parsed).unwrap();
         assert!(yaml.contains("pinned: true"), "got: {}", yaml);
+    }
+
+    #[test]
+    fn webservers_list_round_trips() {
+        let yaml = "\
+webservers:
+- name: pc-wsl
+  enabled: true
+  target: wsl
+  distro: Ubuntu
+  port: 3100
+- name: pc-windows
+  target: native
+  command: assist sessions web --no-open --port 3101
+  port: 3101
+";
+        let parsed: Config = serde_yaml::from_str(yaml).unwrap();
+        let servers = parsed.webservers.as_ref().unwrap();
+        assert_eq!(servers[0].name, "pc-wsl");
+        assert!(servers[0].settings.enabled);
+        assert_eq!(servers[1].target.as_deref(), Some("native"));
+        assert_eq!(servers[1].settings.port, Some(3101));
+        let out = serde_yaml::to_string(&parsed).unwrap();
+        assert!(
+            out.contains("command: assist sessions web --no-open --port 3101"),
+            "got: {}",
+            out
+        );
     }
 
     #[test]
