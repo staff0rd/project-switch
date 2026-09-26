@@ -2,6 +2,11 @@
 
 mod config;
 mod icon;
+// Shared verbatim with the main crate, which is a separate crate with no library
+// target to depend on (the same trick as the bundled logo).
+#[cfg(windows)]
+#[path = "../../src/utils/log.rs"]
+mod log;
 mod platform;
 mod sync;
 mod webserver;
