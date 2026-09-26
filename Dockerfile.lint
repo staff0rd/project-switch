@@ -1,4 +1,5 @@
 FROM rust:latest
+RUN rustup update stable && rustup default stable
 RUN rustup component add rustfmt clippy
 RUN cargo install cargo-machete cargo-audit
 WORKDIR /app
