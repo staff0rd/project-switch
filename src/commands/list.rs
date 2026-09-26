@@ -311,6 +311,7 @@ pub fn execute_action(input: &str) -> Result<()> {
                             url,
                             config_manager.get_monitor(),
                             Some(&selected_command.key),
+                            selected_command.navigate,
                         );
                     }
 

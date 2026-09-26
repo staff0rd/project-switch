@@ -74,6 +74,10 @@ pub struct ProjectCommand {
     /// instead of a browser. Mutually exclusive with `command`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub webview: bool,
+    /// When the webview window is already open, send it this command's URL
+    /// instead of only bringing it to the front.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub navigate: bool,
     /// Force this command to the top of the recent list when the launcher
     /// opens with empty input, regardless of when it was last used.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -346,6 +350,7 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
         browser: overlay.browser.or(base.browser),
         args: overlay.args.or(base.args),
         webview: overlay.webview || base.webview,
+        navigate: overlay.navigate || base.navigate,
         pinned: overlay.pinned || base.pinned,
     }
 }
@@ -369,6 +374,13 @@ fn validate_command_list(commands: &[ProjectCommand], context: &str) -> Result<(
         if cmd.webview && cmd.command.is_some() {
             anyhow::bail!(
                 "Command '{}' in {} has both 'webview: true' and 'command' — webview opens a URL, not a command",
+                cmd.key,
+                context
+            );
+        }
+        if cmd.navigate && !cmd.webview {
+            anyhow::bail!(
+                "Command '{}' in {} has 'navigate: true' without 'webview: true' — navigate only applies to the webview window",
                 cmd.key,
                 context
             );
@@ -769,6 +781,7 @@ clients:
             browser: None,
             args: None,
             webview: false,
+            navigate: false,
             pinned: false,
         };
         let yaml = serde_yaml::to_string(&cmd).unwrap();

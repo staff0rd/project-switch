@@ -69,6 +69,13 @@ clients:
       - key: dev
         url: http://localhost:3000
         # Uses global default browser (firefox)
+      - key: dev-app
+        url: http://localhost:3000
+        webview: true
+      - key: dev-new
+        url: http://localhost:3000/?new
+        webview: true
+        navigate: true
       - key: prod
         url: https://example.com
         browser: chrome  # Command-level browser

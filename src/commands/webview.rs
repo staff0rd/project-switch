@@ -166,6 +166,7 @@ enum UserEvent {
     Resize(tao::window::ResizeDirection),
     OpenExternal(String),
     ShowToast,
+    Navigate(String),
 }
 
 #[cfg(windows)]
@@ -303,6 +304,79 @@ fn external_predicate(url: &str) -> impl Fn(&str) -> bool + Clone {
     }
 }
 
+/// Holds the loopback port the running webview listens on for forwarded URLs.
+#[cfg(any(windows, target_os = "macos"))]
+fn navigate_port_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".project-switch-webview.port"))
+}
+
+/// Accept URLs forwarded by later launcher invocations (one per connection,
+/// newline-terminated) and hand each to `on_url`. Best-effort: without the
+/// listener, `navigate` entries fall back to only foregrounding the window.
+#[cfg(any(windows, target_os = "macos"))]
+fn listen_for_navigation(on_url: impl Fn(String) + Send + 'static) {
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+
+    let Ok(listener) = TcpListener::bind(("127.0.0.1", 0)) else {
+        return;
+    };
+    let (Ok(addr), Some(path)) = (listener.local_addr(), navigate_port_path()) else {
+        return;
+    };
+    if std::fs::write(path, addr.port().to_string()).is_err() {
+        return;
+    }
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut line = String::new();
+            if BufReader::new(stream).read_line(&mut line).is_ok() {
+                let url = line.trim();
+                if !url.is_empty() {
+                    on_url(url.to_string());
+                }
+            }
+        }
+    });
+}
+
+/// Send `url` to the already-running webview process.
+#[cfg(any(windows, target_os = "macos"))]
+fn forward_navigation(url: &str) {
+    use std::io::Write;
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    let Some(port) = navigate_port_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u16>().ok())
+    else {
+        return;
+    };
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    if let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
+        let _ = writeln!(stream, "{url}");
+    }
+}
+
+/// Same-origin URLs are pushed client-side so the SPA router reacts without a
+/// reload; anything else is a full `load_url`.
+#[cfg(any(windows, target_os = "macos"))]
+fn apply_navigation(webview: &wry::WebView, url: &str) {
+    use crate::utils::url::origin_of;
+
+    let target = origin_of(url);
+    let current = webview.url().ok().and_then(|u| origin_of(&u));
+    if target.is_some() && target == current {
+        // Rust's Debug string escapes are valid JS string-literal escapes.
+        let _ = webview.evaluate_script(&format!(
+            "history.pushState(null, '', {url:?}); dispatchEvent(new PopStateEvent('popstate'));"
+        ));
+    } else {
+        let _ = webview.load_url(url);
+    }
+}
+
 /// Build the `project-switch webview <url> [--monitor N]` command that spawns a
 /// fresh webview process. Callers apply any platform-specific flags before
 /// spawning.
@@ -417,6 +491,10 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
     let _ = webview.focus();
 
     let toast_proxy = event_loop.create_proxy();
+    let navigate_proxy = event_loop.create_proxy();
+    listen_for_navigation(move |url| {
+        let _ = navigate_proxy.send_event(UserEvent::Navigate(url));
+    });
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -440,6 +518,11 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
             }
             Event::UserEvent(UserEvent::ShowToast) => {
                 let _ = webview.evaluate_script(TOAST_SCRIPT);
+            }
+            Event::UserEvent(UserEvent::Navigate(url)) => {
+                apply_navigation(&webview, &url);
+                window.set_focus();
+                let _ = webview.focus();
             }
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
@@ -577,11 +660,17 @@ fn enable_resize_frame(hwnd: windows::Win32::Foundation::HWND) {
     }
 }
 
-/// Bring the single webview window to the front if it already exists, otherwise
-/// spawn a fresh `project-switch webview <url>` process. Guarantees only one
-/// webview window ever exists.
+/// Bring the single webview window to the front if it already exists (also
+/// forwarding `url` to it when `navigate` is set), otherwise spawn a fresh
+/// `project-switch webview <url>` process. Guarantees only one webview window
+/// ever exists.
 #[cfg(windows)]
-pub fn summon_or_open(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
+pub fn summon_or_open(
+    url: &str,
+    monitor: Option<u32>,
+    title: Option<&str>,
+    navigate: bool,
+) -> Result<()> {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
@@ -600,6 +689,9 @@ pub fn summon_or_open(url: &str, monitor: Option<u32>, title: Option<&str>) -> R
                 };
                 let _ = ShowWindow(hwnd, restore);
                 let _ = SetForegroundWindow(hwnd);
+            }
+            if navigate {
+                forward_navigation(url);
             }
             return Ok(());
         }
@@ -639,11 +731,11 @@ fn spawn_window(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<
 #[cfg(target_os = "macos")]
 pub fn execute(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
     use tao::event::{Event, StartCause, WindowEvent};
-    use tao::event_loop::{ControlFlow, EventLoop};
+    use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tao::window::WindowBuilder;
     use wry::WebViewBuilder;
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<String>::with_user_event().build();
 
     let ((size, position), _saved) = seed_geometry(&event_loop, monitor);
     let mut builder = WindowBuilder::new()
@@ -658,7 +750,7 @@ pub fn execute(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<(
     let nav_is_external = is_external.clone();
     let popup_is_external = is_external;
 
-    let _webview = WebViewBuilder::new(&window)
+    let webview = WebViewBuilder::new(&window)
         .with_url(url)
         .with_initialization_script(&format!("{LINK_SCRIPT}\n{RELOAD_SCRIPT}"))
         // Links the page surfaces via target=_blank / window.open (e.g. URLs in
@@ -692,10 +784,19 @@ pub fn execute(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<(
         .build()
         .context("Failed to create webview window")?;
 
+    let navigate_proxy = event_loop.create_proxy();
+    listen_for_navigation(move |url| {
+        let _ = navigate_proxy.send_event(url);
+    });
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
         match event {
+            Event::UserEvent(url) => {
+                apply_navigation(&webview, &url);
+                window.set_focus();
+            }
             // Set the dock icon and main menu once NSApplication has finished
             // launching — tao only promotes the bare binary to a regular app
             // (giving it a dock tile and menu bar) during event-loop startup, so
@@ -818,12 +919,21 @@ fn set_main_menu() {
     }
 }
 
-/// Bring the single webview window to the front if its process already exists,
-/// otherwise spawn a fresh `project-switch webview <url>` process. Guarantees
-/// only one webview window ever exists.
+/// Bring the single webview window to the front if its process already exists
+/// (also forwarding `url` to it when `navigate` is set), otherwise spawn a fresh
+/// `project-switch webview <url>` process. Guarantees only one webview window
+/// ever exists.
 #[cfg(target_os = "macos")]
-pub fn summon_or_open(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
+pub fn summon_or_open(
+    url: &str,
+    monitor: Option<u32>,
+    title: Option<&str>,
+    navigate: bool,
+) -> Result<()> {
     if activate_existing_webview() {
+        if navigate {
+            forward_navigation(url);
+        }
         return Ok(());
     }
     spawn_window(url, monitor, title)
@@ -884,6 +994,11 @@ pub fn execute(_url: &str, _monitor: Option<u32>, _title: Option<&str>) -> Resul
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn summon_or_open(_url: &str, _monitor: Option<u32>, _title: Option<&str>) -> Result<()> {
+pub fn summon_or_open(
+    _url: &str,
+    _monitor: Option<u32>,
+    _title: Option<&str>,
+    _navigate: bool,
+) -> Result<()> {
     anyhow::bail!("The webview window is not supported on this platform")
 }

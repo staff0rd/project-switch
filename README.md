@@ -110,6 +110,23 @@ Each client may contain a `projects:` array. When a project is selected, the eff
 
 See `example-include-config.yml` for a full shared config example.
 
+## Webview
+
+A command with `webview: true` opens its `url` in a single reusable webview window (Windows and macOS) instead of a browser. Only one webview window exists: if it is already open, selecting any webview command just brings it to the front and leaves its page alone.
+
+Add `navigate: true` to have the command also send its URL to an already-open window. A URL with the same origin as the current page is applied client-side (`history.pushState` plus a `popstate` event) so a single-page app reacts without reloading; any other URL is loaded normally. `navigate` requires `webview: true`.
+
+```yaml
+global:
+  - key: assist
+    url: http://localhost:3100
+    webview: true            # only brings an open window to the front
+  - key: assist - new
+    url: http://localhost:3100/?new
+    webview: true
+    navigate: true           # also routes an open window to /?new
+```
+
 ## Webserver
 
 The `project-switch-hotkey` tray app can manage background webservers (the assist UI). Configure them as a `webservers` list in `~/.project-switch.yml`; each gets its own tray submenu (Enabled, Restart, Open in browser, View logs):
