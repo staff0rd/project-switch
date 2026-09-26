@@ -21,7 +21,14 @@ meval = "0.2"
 urlencoding = "2.1"
 
 # GUI (egui/eframe)
-eframe = "0.36"
+# glow, not the 0.36 default wgpu: wgpu adapter init adds ~270ms to every launcher spawn.
+eframe = { version = "0.36", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
 
 # Hotkey & system tray — Windows/macOS only (merged from project-switch-hotkey)
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
@@ -62,6 +69,7 @@ windows = { version = "0.62", features = [
 # never collides with the egui launcher.
 wry = "0.45"
 tao = "0.30"
+raw-window-handle = "0.6"
 
 [build-dependencies]
 winresource = "0.1"

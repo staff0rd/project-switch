@@ -430,11 +430,13 @@ pub fn execute_gui(monitor: Option<u32>) -> Result<()> {
         crate::ui::launcher_options(true, monitor),
         Box::new(move |cc| {
             crate::ui::apply_launcher_style(&cc.egui_ctx);
+            if let Some(n) = monitor {
+                crate::ui::place_on_monitor(cc, n);
+            }
             Ok(Box::new(crate::ui::LauncherApp::new(
                 state,
                 display_name,
                 shortcut_rx,
-                monitor,
             )))
         }),
     )

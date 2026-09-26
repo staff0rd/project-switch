@@ -28,10 +28,6 @@ pub fn launcher_options(visible: bool, monitor: Option<u32>) -> eframe::NativeOp
         })
     };
 
-    // When targeting a specific monitor on Windows, start the window off-screen
-    // so it doesn't flash on the primary display; LauncherApp repositions on
-    // frame 1.  On other platforms monitor_physical_rect is a no-op, so skip
-    // the off-screen trick to avoid the window being invisible forever.
     #[cfg(windows)]
     let viewport = if monitor.is_some() {
         viewport.with_position(eframe::egui::pos2(-32000.0, -32000.0))
@@ -107,10 +103,41 @@ pub fn monitor_physical_rect(n: u32) -> Option<[i32; 5]> {
     monitors.get((n.saturating_sub(1)) as usize).copied()
 }
 
-#[cfg(not(windows))]
-pub fn monitor_physical_rect(_n: u32) -> Option<[i32; 5]> {
-    None
+#[cfg(windows)]
+pub fn place_on_monitor(cc: &eframe::CreationContext, n: u32) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+
+    let Some([ml, mt, mw, mh, dpi]) = monitor_physical_rect(n) else {
+        return;
+    };
+    let Ok(handle) = cc.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    let scale = dpi as f32 / 96.0;
+    let x = ml + ((mw as f32 - WINDOW_SIZE[0] * scale) / 2.0) as i32;
+    let y = mt + ((mh as f32 - WINDOW_SIZE[1] * scale) / 2.0) as i32;
+    unsafe {
+        let _ = SetWindowPos(
+            HWND(handle.hwnd.get() as *mut _),
+            None,
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
 }
+
+#[cfg(not(windows))]
+pub fn place_on_monitor(_cc: &eframe::CreationContext, _n: u32) {}
 
 /// Apply the standard launcher font styles to an egui context.
 pub fn apply_launcher_style(ctx: &eframe::egui::Context) {

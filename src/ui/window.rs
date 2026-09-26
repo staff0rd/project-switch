@@ -426,8 +426,6 @@ pub struct LauncherApp {
     startup_frames: u32,
     /// Receives shortcuts collected on a background thread.
     shortcut_rx: Option<std::sync::mpsc::Receiver<Vec<crate::launcher::ListItem>>>,
-    /// Target monitor (1-based) to reposition the window onto after creation.
-    monitor: Option<u32>,
 }
 
 impl LauncherApp {
@@ -435,7 +433,6 @@ impl LauncherApp {
         state: WindowState,
         project_name: String,
         shortcut_rx: Option<std::sync::mpsc::Receiver<Vec<crate::launcher::ListItem>>>,
-        monitor: Option<u32>,
     ) -> Self {
         Self {
             state,
@@ -443,7 +440,6 @@ impl LauncherApp {
             prev_input: String::new(),
             startup_frames: 0,
             shortcut_rx,
-            monitor,
         }
     }
 }
@@ -477,26 +473,6 @@ impl eframe::App for LauncherApp {
         // has passed, so ask for focus again while the error is on screen.
         if self.state.error.is_some() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-        }
-
-        // On the first rendered frame, reposition the window onto the
-        // target monitor.  The window starts off-screen (see launcher_options)
-        // so this runs before the user ever sees it.
-        if self.startup_frames == 1 {
-            if let Some(n) = self.monitor {
-                if let Some([ml, mt, mw, mh, dpi]) = crate::ui::monitor_physical_rect(n) {
-                    let ppp = ctx.pixels_per_point();
-                    let target_scale = dpi as f32 / 96.0;
-                    let phys_w = crate::ui::WINDOW_SIZE[0] * target_scale;
-                    let phys_h = crate::ui::WINDOW_SIZE[1] * target_scale;
-                    let tx = ml as f32 + (mw as f32 - phys_w) / 2.0;
-                    let ty = mt as f32 + (mh as f32 - phys_h) / 2.0;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                        tx / ppp,
-                        ty / ppp,
-                    )));
-                }
-            }
         }
 
         // Request OS-level window focus during the first few frames.

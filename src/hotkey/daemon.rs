@@ -1,9 +1,11 @@
 //! Daemon mode: global hotkey + system tray + GUI launcher in one process.
 
 #[cfg(any(windows, target_os = "macos"))]
-use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager};
+use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 #[cfg(any(windows, target_os = "macos"))]
-use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use muda::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
+#[cfg(any(windows, target_os = "macos"))]
+use std::sync::mpsc::{channel, Receiver};
 #[cfg(any(windows, target_os = "macos"))]
 use tray_icon::{TrayIcon, TrayIconBuilder};
 
@@ -77,6 +79,72 @@ fn create_tray(shortcuts_enabled: bool) -> Result<(TrayIcon, MenuIds)> {
     ))
 }
 
+#[cfg(any(windows, target_os = "macos"))]
+enum DaemonEvent {
+    Hotkey,
+    Menu(MenuId),
+}
+
+#[cfg(windows)]
+fn window_hwnd(cc: &eframe::CreationContext) -> Option<isize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match cc.window_handle().ok()?.as_raw() {
+        RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
+        _ => None,
+    }
+}
+
+#[cfg(windows)]
+fn show_if_hidden(hwnd: Option<isize>) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsWindowVisible, SetForegroundWindow, ShowWindow, SW_SHOW,
+    };
+    let Some(hwnd) = hwnd else { return };
+    let hwnd = HWND(hwnd as *mut _);
+    unsafe {
+        if !IsWindowVisible(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn show_if_hidden(_hwnd: Option<isize>) {}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn install_event_handlers(
+    ctx: &egui::Context,
+    hwnd: Option<isize>,
+    open_id: MenuId,
+) -> Receiver<DaemonEvent> {
+    let (tx, rx) = channel();
+
+    let hotkey_tx = tx.clone();
+    let hotkey_ctx = ctx.clone();
+    GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+        if event.state != HotKeyState::Pressed {
+            return;
+        }
+        let _ = hotkey_tx.send(DaemonEvent::Hotkey);
+        show_if_hidden(hwnd);
+        hotkey_ctx.request_repaint();
+    }));
+
+    let menu_ctx = ctx.clone();
+    MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+        let is_open = event.id() == &open_id;
+        let _ = tx.send(DaemonEvent::Menu(event.id));
+        if is_open {
+            show_if_hidden(hwnd);
+        }
+        menu_ctx.request_repaint();
+    }));
+
+    rx
+}
+
 fn load_items() -> (Vec<ListItem>, String) {
     let config_manager = match ConfigManager::new() {
         Ok(cm) => cm,
@@ -99,34 +167,33 @@ struct DaemonApp {
     _tray: TrayIcon,
     #[cfg(any(windows, target_os = "macos"))]
     menu_ids: MenuIds,
+    #[cfg(any(windows, target_os = "macos"))]
+    events: Receiver<DaemonEvent>,
 }
 
-impl eframe::App for DaemonApp {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Poll hotkey events
-        #[cfg(any(windows, target_os = "macos"))]
-        if let Ok(_event) = GlobalHotKeyEvent::receiver().try_recv() {
-            self.state.toggle();
-            if self.state.visibility == Visibility::Visible {
-                let (items, name) = load_items();
-                self.state.set_items(items);
-                self.state.set_recent_keys(crate::history::load());
-                self.client_name = name;
-            }
-        }
+#[cfg(any(windows, target_os = "macos"))]
+impl DaemonApp {
+    fn reload_items(&mut self) {
+        let (items, name) = load_items();
+        self.state.set_items(items);
+        self.state.set_recent_keys(crate::history::load());
+        self.client_name = name;
+    }
 
-        // Poll tray menu events
-        #[cfg(any(windows, target_os = "macos"))]
-        if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id() == self.menu_ids.open.id() {
+    fn handle_event(&mut self, event: DaemonEvent) {
+        match event {
+            DaemonEvent::Hotkey => {
+                self.state.toggle();
+                if self.state.visibility == Visibility::Visible {
+                    self.reload_items();
+                }
+            }
+            DaemonEvent::Menu(id) if id == *self.menu_ids.open.id() => {
                 self.state.show();
-                let (items, name) = load_items();
-                self.state.set_items(items);
-                self.state.set_recent_keys(crate::history::load());
-                self.client_name = name;
-            } else if event.id() == self.menu_ids.exit.id() {
-                std::process::exit(0);
-            } else if event.id() == self.menu_ids.shortcuts.id() {
+                self.reload_items();
+            }
+            DaemonEvent::Menu(id) if id == *self.menu_ids.exit.id() => std::process::exit(0),
+            DaemonEvent::Menu(id) if id == *self.menu_ids.shortcuts.id() => {
                 // Toggle shortcuts in config
                 if let Ok(cm) = ConfigManager::new() {
                     let current = cm.get_shortcuts_config().enabled;
@@ -134,13 +201,23 @@ impl eframe::App for DaemonApp {
                     let _ = current; // TODO: implement toggle_shortcuts
                 }
             }
+            DaemonEvent::Menu(_) => {}
         }
+    }
+}
 
-        // Request repaint periodically to keep polling events
-        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+impl eframe::App for DaemonApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(any(windows, target_os = "macos"))]
+        while let Ok(event) = self.events.try_recv() {
+            self.handle_event(event);
+        }
 
         // Surface failures from actions dispatched off the UI thread.
         self.state.poll_actions();
+        if self.state.has_pending_actions() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
 
         if crate::ui::window::sync_visibility(ctx, &mut self.state) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -187,6 +264,13 @@ pub fn run() -> Result<()> {
         Box::new(move |cc| {
             crate::ui::apply_launcher_style(&cc.egui_ctx);
 
+            #[cfg(windows)]
+            let hwnd = window_hwnd(cc);
+            #[cfg(target_os = "macos")]
+            let hwnd = None;
+            #[cfg(any(windows, target_os = "macos"))]
+            let events = install_event_handlers(&cc.egui_ctx, hwnd, menu_ids.open.id().clone());
+
             Ok(Box::new(DaemonApp {
                 state,
                 client_name: display_name,
@@ -197,6 +281,8 @@ pub fn run() -> Result<()> {
                 _tray: tray,
                 #[cfg(any(windows, target_os = "macos"))]
                 menu_ids,
+                #[cfg(any(windows, target_os = "macos"))]
+                events,
             }))
         }),
     )
