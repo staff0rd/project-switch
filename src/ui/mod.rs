@@ -53,12 +53,13 @@ pub fn launcher_options(visible: bool, monitor: Option<u32>) -> eframe::NativeOp
 
 /// Return the physical-pixel rect `[left, top, width, height, dpi]` for the
 /// Nth monitor (1-based, sorted left-to-right).  Must be called **after**
-/// eframe has initialised (i.e. inside `App::update`) so the process is
+/// eframe has initialised (i.e. inside `App::logic`) so the process is
 /// DPI-aware and coordinates are in true physical pixels.
 #[cfg(windows)]
 pub fn monitor_physical_rect(n: u32) -> Option<[i32; 5]> {
     use std::mem;
-    use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
     };
@@ -96,7 +97,7 @@ pub fn monitor_physical_rect(n: u32) -> Option<[i32; 5]> {
     let mut monitors: Vec<Entry> = Vec::new();
     unsafe {
         let _ = EnumDisplayMonitors(
-            HDC::default(),
+            None,
             None,
             Some(callback),
             LPARAM(&mut monitors as *mut _ as isize),
@@ -113,18 +114,18 @@ pub fn monitor_physical_rect(_n: u32) -> Option<[i32; 5]> {
 
 /// Apply the standard launcher font styles to an egui context.
 pub fn apply_launcher_style(ctx: &eframe::egui::Context) {
-    let mut style = (*ctx.style()).clone();
-    style.text_styles.insert(
-        eframe::egui::TextStyle::Body,
-        eframe::egui::FontId::proportional(18.0),
-    );
-    style.text_styles.insert(
-        eframe::egui::TextStyle::Button,
-        eframe::egui::FontId::proportional(18.0),
-    );
-    style.text_styles.insert(
-        eframe::egui::TextStyle::Monospace,
-        eframe::egui::FontId::monospace(16.0),
-    );
-    ctx.set_style(style);
+    ctx.all_styles_mut(|style| {
+        style.text_styles.insert(
+            eframe::egui::TextStyle::Body,
+            eframe::egui::FontId::proportional(18.0),
+        );
+        style.text_styles.insert(
+            eframe::egui::TextStyle::Button,
+            eframe::egui::FontId::proportional(18.0),
+        );
+        style.text_styles.insert(
+            eframe::egui::TextStyle::Monospace,
+            eframe::egui::FontId::monospace(16.0),
+        );
+    });
 }

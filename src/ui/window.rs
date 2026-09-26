@@ -2,7 +2,7 @@
 
 use crate::launcher::picker::{PickerEntry, PickerOutcome};
 use crate::launcher::{get_path_entries, CalcResult, ListItemKind};
-use crate::ui::state::{FilteredEntry, InputMode, WindowState};
+use crate::ui::state::{FilteredEntry, InputMode, Visibility, WindowState};
 use eframe::egui;
 
 const ERROR_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 110, 110);
@@ -129,19 +129,29 @@ fn render_picker(
     }
 }
 
+/// Hide on focus loss, then show or hide the window to match the state. Returns whether it is visible.
+pub fn sync_visibility(ctx: &egui::Context, state: &mut WindowState) -> bool {
+    let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+    state.hide_on_focus_loss(focused);
+
+    let visible = state.visibility == Visibility::Visible;
+    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(visible));
+    visible
+}
+
 /// Render the launcher UI inside a CentralPanel. Shared by both standalone and daemon modes.
 pub fn render_launcher(
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     state: &mut WindowState,
     project_name: &str,
     prev_input: &mut String,
 ) {
-    egui::CentralPanel::default().show(ctx, |ui| {
+    egui::CentralPanel::default().show(ui, |ui| {
         // Draggable title bar
         let (title_rect, response) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), egui::Sense::drag());
         if response.dragged() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
         let title = match &state.picker {
             Some(picker) => picker.title(),
@@ -439,9 +449,7 @@ impl LauncherApp {
 }
 
 impl eframe::App for LauncherApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        use crate::ui::state::Visibility;
-
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Merge async-loaded shortcuts when ready
         if let Some(rx) = self.shortcut_rx.take() {
             match rx.try_recv() {
@@ -461,16 +469,9 @@ impl eframe::App for LauncherApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
 
-        // Hide on focus loss (focused → unfocused transition only).
-        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
-        self.state.hide_on_focus_loss(focused);
-
-        if self.state.visibility == Visibility::Hidden {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        if !sync_visibility(ctx, &mut self.state) {
             return;
         }
-
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
 
         // A failed action re-shows the window after the startup focus window
         // has passed, so ask for focus again while the error is on screen.
@@ -506,9 +507,14 @@ impl eframe::App for LauncherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.startup_frames += 1;
         }
+    }
 
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.state.visibility == Visibility::Hidden {
+            return;
+        }
         render_launcher(
-            ctx,
+            ui,
             &mut self.state,
             &self.project_name,
             &mut self.prev_input,

@@ -21,7 +21,7 @@ meval = "0.2"
 urlencoding = "2.1"
 
 # GUI (egui/eframe)
-eframe = "0.31"
+eframe = "0.36"
 
 # Hotkey & system tray — Windows/macOS only (merged from project-switch-hotkey)
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
@@ -51,7 +51,7 @@ wry = "0.45"
 tao = "0.30"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_HiDpi",
     "Win32_Graphics_Gdi",

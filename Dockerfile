@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     gcc-x86-64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
 
+RUN rustup update stable && rustup default stable
+
 # Add compilation targets
 RUN rustup target add x86_64-pc-windows-gnu
 RUN rustup target add x86_64-unknown-linux-gnu

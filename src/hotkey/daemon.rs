@@ -102,7 +102,7 @@ struct DaemonApp {
 }
 
 impl eframe::App for DaemonApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Poll hotkey events
         #[cfg(any(windows, target_os = "macos"))]
         if let Ok(_event) = GlobalHotKeyEvent::receiver().try_recv() {
@@ -142,20 +142,17 @@ impl eframe::App for DaemonApp {
         // Surface failures from actions dispatched off the UI thread.
         self.state.poll_actions();
 
-        // Hide on focus loss (focused → unfocused transition only).
-        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
-        self.state.hide_on_focus_loss(focused);
+        if crate::ui::window::sync_visibility(ctx, &mut self.state) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
 
-        // Delegate to the launcher window rendering
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if self.state.visibility == Visibility::Hidden {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             return;
         }
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-
         crate::ui::window::render_launcher(
-            ctx,
+            ui,
             &mut self.state,
             &self.client_name,
             &mut self.prev_input,
