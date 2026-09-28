@@ -670,26 +670,27 @@ impl ConfigManager {
 }
 
 #[cfg(test)]
+pub(crate) fn make_manager(contents: &str) -> ConfigManager {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let tmp = std::env::temp_dir().join(format!(
+        "ps-test-{}-{}.yml",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::write(&tmp, contents).unwrap();
+    let (config, raw_yaml, local_clients) = ConfigManager::load_config(&tmp).unwrap();
+    ConfigManager {
+        config,
+        config_path: tmp,
+        raw_yaml,
+        local_clients,
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    fn make_manager(contents: &str) -> ConfigManager {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static N: AtomicU64 = AtomicU64::new(0);
-        let tmp = std::env::temp_dir().join(format!(
-            "ps-test-{}-{}.yml",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&tmp, contents).unwrap();
-        let (config, raw_yaml, local_clients) = ConfigManager::load_config(&tmp).unwrap();
-        ConfigManager {
-            config,
-            config_path: tmp,
-            raw_yaml,
-            local_clients,
-        }
-    }
 
     #[test]
     fn old_schema_migrates_then_switch_persists_both_keys() {

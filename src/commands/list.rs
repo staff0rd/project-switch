@@ -207,18 +207,26 @@ fn load_command_items(
     all_commands.sort_by(|a, b| a.key.cmp(&b.key));
     all_commands.dedup_by(|a, b| a.key == b.key);
 
-    let all_items: Vec<ListItem> = all_commands
-        .iter()
-        .map(|cmd| ListItem {
-            key: cmd.key.clone(),
-            display_detail: cmd
-                .url
-                .clone()
-                .or_else(|| cmd.command.clone())
-                .unwrap_or_default(),
-            kind: command_kind(cmd),
-            pinned: cmd.pinned,
-        })
+    let builtin_switch = ListItem {
+        key: "switch".to_string(),
+        display_detail: selection_display_name(config_manager),
+        kind: ListItemKind::Switch,
+        pinned: false,
+    };
+
+    let all_items: Vec<ListItem> = std::iter::once(builtin_switch)
+        .chain(all_commands.iter().map(|cmd| {
+            ListItem {
+                key: cmd.key.clone(),
+                display_detail: cmd
+                    .url
+                    .clone()
+                    .or_else(|| cmd.command.clone())
+                    .unwrap_or_default(),
+                kind: command_kind(cmd),
+                pinned: cmd.pinned,
+            }
+        }))
         .collect();
 
     (all_commands, all_items)
@@ -511,4 +519,71 @@ pub fn execute(_debug: bool) -> Result<()> {
     };
 
     execute_action(&cleaned_input)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::make_manager;
+
+    fn builtin_switch(config_manager: &ConfigManager) -> ListItem {
+        let (_, items) = load_items(config_manager);
+        items
+            .into_iter()
+            .find(|item| item.key == "switch")
+            .expect("built-in switch item missing")
+    }
+
+    #[test]
+    fn builtin_switch_present_without_config_entry() {
+        let cm = make_manager(
+            "\
+shortcuts:
+  enabled: false
+global:
+- key: git
+  url: https://x
+",
+        );
+        let item = builtin_switch(&cm);
+        assert_eq!(item.kind, ListItemKind::Switch);
+        assert!(!item.pinned);
+    }
+
+    #[test]
+    fn builtin_switch_detail_shows_client_and_project() {
+        let cm = make_manager(
+            "\
+shortcuts:
+  enabled: false
+currentClient: apm
+currentProject: web
+clients:
+- name: apm
+  projects:
+  - name: web
+",
+        );
+        assert_eq!(builtin_switch(&cm).display_detail, "apm / web");
+    }
+
+    #[test]
+    fn builtin_switch_detail_shows_client_only() {
+        let cm = make_manager(
+            "\
+shortcuts:
+  enabled: false
+currentClient: apm
+clients:
+- name: apm
+",
+        );
+        assert_eq!(builtin_switch(&cm).display_detail, "apm");
+    }
+
+    #[test]
+    fn builtin_switch_detail_falls_back_to_global() {
+        let cm = make_manager("shortcuts:\n  enabled: false\n");
+        assert_eq!(builtin_switch(&cm).display_detail, "global");
+    }
 }
