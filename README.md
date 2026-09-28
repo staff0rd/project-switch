@@ -37,6 +37,12 @@ project-switch current
 project-switch list
 ```
 
+### Built-in switch item
+
+The launcher list (terminal `list`, `list --gui` and the hotkey launcher) always contains a `switch` item — no config needed. Its detail column shows the active selection (e.g. `apm / web`), matching `project-switch current`. It ranks by recency like any other item. In the GUI, Enter opens the in-window client/project picker; in the terminal it runs the interactive `switch` prompt.
+
+Delete any legacy config command that re-invokes the binary (e.g. `key: switch` with `command: project-switch.exe switch`). It is no longer intercepted: it spawns a nested process that does nothing useful from the GUI, and it duplicates the built-in row.
+
 ## Configuration
 
 Uses `~/.project-switch.yml` for configuration. See `example-config.yml` for reference.

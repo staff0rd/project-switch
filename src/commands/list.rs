@@ -1,8 +1,7 @@
 use crate::config::ConfigManager;
 use crate::launcher::{
-    encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path,
-    is_switch_command, merge_args, order_recent_keys, resolve_item, strip_ansi_codes, CalcResult,
-    ListItem, ListItemKind,
+    encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path, merge_args,
+    order_recent_keys, resolve_item, strip_ansi_codes, CalcResult, ListItem, ListItemKind,
 };
 use crate::utils::browser;
 use crate::utils::shortcuts;
@@ -175,13 +174,6 @@ pub fn selection_display_name(config_manager: &ConfigManager) -> String {
     }
 }
 
-fn command_kind(cmd: &crate::config::ProjectCommand) -> ListItemKind {
-    match cmd.command.as_deref() {
-        Some(command) if is_switch_command(command, cmd.args.as_deref()) => ListItemKind::Switch,
-        _ => ListItemKind::Command,
-    }
-}
-
 /// Load only command items from config (fast — no filesystem scanning).
 /// Effective command set precedence when a project is active:
 /// project > client > global.
@@ -223,7 +215,7 @@ fn load_command_items(
                     .clone()
                     .or_else(|| cmd.command.clone())
                     .unwrap_or_default(),
-                kind: command_kind(cmd),
+                kind: ListItemKind::Command,
                 pinned: cmd.pinned,
             }
         }))
@@ -579,6 +571,22 @@ clients:
 ",
         );
         assert_eq!(builtin_switch(&cm).display_detail, "apm");
+    }
+
+    #[test]
+    fn config_switch_invocation_is_ordinary_command() {
+        let cm = make_manager(
+            "\
+shortcuts:
+  enabled: false
+global:
+- key: reswitch
+  command: project-switch.exe switch
+",
+        );
+        let (_, items) = load_items(&cm);
+        let item = items.iter().find(|item| item.key == "reswitch").unwrap();
+        assert_eq!(item.kind, ListItemKind::Command);
     }
 
     #[test]
