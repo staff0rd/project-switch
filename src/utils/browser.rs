@@ -166,10 +166,20 @@ pub fn open_url_in_browser(url: &str, browser: &str, debug: bool) -> Result<()> 
                 let extra = debug_extra_args(" --args ", &extra_args);
                 println!(
                     "{}",
-                    format!("[debug] open -a {}{} {}", browser_cmd, extra, url).dimmed()
+                    format!(
+                        "[debug] open{} -a {}{} {}",
+                        if extra_args.is_empty() { "" } else { " -n" },
+                        browser_cmd,
+                        extra,
+                        url
+                    )
+                    .dimmed()
                 );
             }
             let mut cmd = Command::new("open");
+            if !extra_args.is_empty() {
+                cmd.arg("-n");
+            }
             cmd.args(["-a", browser_cmd]);
             if !extra_args.is_empty() {
                 cmd.arg("--args");
