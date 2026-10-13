@@ -58,6 +58,36 @@ pub struct WebserverEntryConfig {
     pub settings: WebserverConfig,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserOption {
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CommandBrowser {
+    Single(String),
+    Choice(Vec<BrowserOption>),
+}
+
+impl CommandBrowser {
+    pub fn first_value(&self) -> &str {
+        match self {
+            CommandBrowser::Single(value) => value,
+            CommandBrowser::Choice(options) => &options[0].value,
+        }
+    }
+
+    pub fn choices(&self) -> Option<&[BrowserOption]> {
+        match self {
+            CommandBrowser::Choice(options) if options.len() > 1 => Some(options),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectCommand {
@@ -67,7 +97,7 @@ pub struct ProjectCommand {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub browser: Option<String>,
+    pub browser: Option<CommandBrowser>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
     /// Open this command's URL in the reusable borderless webview window
@@ -371,6 +401,26 @@ fn validate_command_list(commands: &[ProjectCommand], context: &str) -> Result<(
                 context
             );
         }
+        if let Some(CommandBrowser::Choice(options)) = &cmd.browser {
+            if options.is_empty() {
+                anyhow::bail!(
+                    "Command '{}' in {} has an empty 'browser' list — give at least one {{label, value}} entry",
+                    cmd.key,
+                    context
+                );
+            }
+            let mut labels = std::collections::HashSet::new();
+            for option in options {
+                if !labels.insert(option.label.as_str()) {
+                    anyhow::bail!(
+                        "Command '{}' in {} has duplicate browser label '{}'",
+                        cmd.key,
+                        context,
+                        option.label
+                    );
+                }
+            }
+        }
         if cmd.webview && cmd.command.is_some() {
             anyhow::bail!(
                 "Command '{}' in {} has both 'webview: true' and 'command' — webview opens a URL, not a command",
@@ -465,6 +515,9 @@ impl ConfigManager {
                         serde_yaml::from_str(&base_contents).with_context(|| {
                             format!("Failed to parse included config: {}", resolved.display())
                         })?;
+                    validate_commands(&base_config).with_context(|| {
+                        format!("Invalid included config: {}", resolved.display())
+                    })?;
                     merge_configs(base_config, local_config)
                 } else {
                     eprintln!("Warning: included config not found: {}", resolved.display());
@@ -670,7 +723,7 @@ impl ConfigManager {
 }
 
 #[cfg(test)]
-pub(crate) fn make_manager(contents: &str) -> ConfigManager {
+fn write_temp_config(contents: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
     let tmp = std::env::temp_dir().join(format!(
@@ -679,6 +732,12 @@ pub(crate) fn make_manager(contents: &str) -> ConfigManager {
         N.fetch_add(1, Ordering::Relaxed)
     ));
     fs::write(&tmp, contents).unwrap();
+    tmp
+}
+
+#[cfg(test)]
+pub(crate) fn make_manager(contents: &str) -> ConfigManager {
+    let tmp = write_temp_config(contents);
     let (config, raw_yaml, local_clients) = ConfigManager::load_config(&tmp).unwrap();
     ConfigManager {
         config,
@@ -858,5 +917,157 @@ clients:
             "got: {}",
             written
         );
+    }
+
+    fn load_error(contents: &str) -> String {
+        let path = write_temp_config(contents);
+        match ConfigManager::load_config(&path) {
+            Ok(_) => panic!("expected config load to fail"),
+            Err(e) => format!("{e:#}"),
+        }
+    }
+
+    fn global_browser(cm: &ConfigManager) -> Option<CommandBrowser> {
+        cm.get_global_commands().unwrap()[0].browser.clone()
+    }
+
+    fn option(label: &str, value: &str) -> BrowserOption {
+        BrowserOption {
+            label: label.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    const BROWSER_LIST: &str = "\
+global:
+- key: member-dev
+  url: https://member.dev.example/
+  browser:
+  - label: integrator
+    value: firefox -P integrator
+  - label: integrator+coach
+    value: firefox -P coach
+";
+
+    #[test]
+    fn browser_string_parses_as_single() {
+        let cm = make_manager("global:\n- key: a\n  url: https://x\n  browser: firefox -P work\n");
+        let browser = global_browser(&cm).unwrap();
+        assert_eq!(
+            browser,
+            CommandBrowser::Single("firefox -P work".to_string())
+        );
+        assert_eq!(browser.first_value(), "firefox -P work");
+        assert!(browser.choices().is_none());
+    }
+
+    #[test]
+    fn browser_list_parses_in_config_order() {
+        let browser = global_browser(&make_manager(BROWSER_LIST)).unwrap();
+        let expected = [
+            option("integrator", "firefox -P integrator"),
+            option("integrator+coach", "firefox -P coach"),
+        ];
+        assert_eq!(browser.choices(), Some(&expected[..]));
+        assert_eq!(browser.first_value(), "firefox -P integrator");
+    }
+
+    #[test]
+    fn single_entry_browser_list_offers_no_choice() {
+        let cm = make_manager(
+            "global:\n- key: a\n  url: https://x\n  browser:\n  - label: only\n    value: chrome\n",
+        );
+        let browser = global_browser(&cm).unwrap();
+        assert!(browser.choices().is_none());
+        assert_eq!(browser.first_value(), "chrome");
+    }
+
+    #[test]
+    fn browser_list_round_trips() {
+        let cmd: ProjectCommand = serde_yaml::from_str(
+            "key: a\nurl: https://x\nbrowser:\n- label: one\n  value: firefox -P one\n",
+        )
+        .unwrap();
+        let reparsed: ProjectCommand =
+            serde_yaml::from_str(&serde_yaml::to_string(&cmd).unwrap()).unwrap();
+        assert_eq!(reparsed.browser, cmd.browser);
+    }
+
+    #[test]
+    fn empty_browser_list_is_rejected() {
+        let err = load_error("global:\n- key: a\n  url: https://x\n  browser: []\n");
+        assert!(err.contains("empty 'browser' list"), "got: {err}");
+    }
+
+    #[test]
+    fn duplicate_browser_labels_are_rejected() {
+        let err = load_error(
+            "\
+clients:
+- name: c
+  commands:
+  - key: a
+    url: https://x
+    browser:
+    - label: same
+      value: firefox -P one
+    - label: same
+      value: firefox -P two
+",
+        );
+        assert!(err.contains("duplicate browser label 'same'"), "got: {err}");
+        assert!(err.contains("client 'c'"), "got: {err}");
+    }
+
+    #[test]
+    fn browser_list_outside_commands_is_rejected() {
+        for (contents, field) in [
+            (
+                "defaultBrowser:\n- label: a\n  value: firefox\n",
+                "defaultBrowser",
+            ),
+            (
+                "clients:\n- name: c\n  browser:\n  - label: a\n    value: firefox\n",
+                "clients[0].browser",
+            ),
+            (
+                "clients:\n- name: c\n  projects:\n  - name: p\n    browser:\n    - label: a\n      value: firefox\n",
+                "clients[0].projects[0].browser",
+            ),
+        ] {
+            let err = load_error(contents);
+            assert!(err.contains(field), "got: {err}");
+            assert!(err.contains("expected a string"), "got: {err}");
+        }
+    }
+
+    #[test]
+    fn included_browser_list_is_validated() {
+        let base = write_temp_config("global:\n- key: a\n  url: https://x\n  browser: []\n");
+        let err = load_error(&format!("include: {}\n", base.display()));
+        assert!(err.contains("Invalid included config"), "got: {err}");
+        assert!(err.contains("empty 'browser' list"), "got: {err}");
+    }
+
+    #[test]
+    fn local_browser_replaces_included_browser() {
+        let base = write_temp_config(BROWSER_LIST);
+        let cm = make_manager(&format!(
+            "include: {}\nglobal:\n- key: member-dev\n  browser: chrome\n",
+            base.display()
+        ));
+        assert_eq!(
+            global_browser(&cm),
+            Some(CommandBrowser::Single("chrome".to_string()))
+        );
+
+        let base =
+            write_temp_config("global:\n- key: member-dev\n  url: https://x\n  browser: chrome\n");
+        let local = BROWSER_LIST.replace(
+            "global:\n",
+            &format!("include: {}\nglobal:\n", base.display()),
+        );
+        let browser = global_browser(&make_manager(&local)).unwrap();
+        assert_eq!(browser.choices().map(<[_]>::len), Some(2));
     }
 }

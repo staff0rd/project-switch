@@ -3,6 +3,8 @@
 //! Manages visibility, input, filtering, selection, and transitions
 //! independently of the GUI framework for testability.
 
+use crate::config::BrowserOption;
+use crate::launcher::browser_picker::BrowserPicker;
 use crate::launcher::picker::PickerState;
 use crate::launcher::{
     eval_calc_input, filter_items, is_file_path, order_recent_keys, CalcResult, ListItem,
@@ -61,6 +63,7 @@ pub struct WindowState {
     recent_keys: Vec<String>,
     /// Active client/project picker; `Some` puts the launcher in picker mode.
     pub picker: Option<PickerState>,
+    pub browser_picker: Option<BrowserPicker>,
     /// Message shown in the launcher's error banner.
     pub error: Option<String>,
     action_tx: Sender<String>,
@@ -81,6 +84,7 @@ impl WindowState {
             filtered_count: 0,
             recent_keys,
             picker: None,
+            browser_picker: None,
             error: None,
             action_tx,
             action_rx,
@@ -98,6 +102,7 @@ impl WindowState {
         self.had_focus = false;
         self.visible_frames = 0;
         self.picker = None;
+        self.browser_picker = None;
         self.error = None;
         self.update_filtered_count();
     }
@@ -195,9 +200,28 @@ impl WindowState {
         self.reset_picker_cursor();
     }
 
+    pub fn open_browser_picker(&mut self, picker: BrowserPicker) {
+        self.error = None;
+        self.browser_picker = Some(picker);
+        self.input.clear();
+        self.selected = 0;
+    }
+
+    pub fn browser_entries(&self) -> Vec<BrowserOption> {
+        self.browser_picker
+            .as_ref()
+            .map(|picker| picker.entries(&self.input))
+            .unwrap_or_default()
+    }
+
+    pub fn selected_browser(&self) -> Option<BrowserOption> {
+        self.browser_entries().get(self.selected).cloned()
+    }
+
     /// Leave picker mode, returning to the normal item list.
     pub fn close_picker(&mut self) {
         self.picker = None;
+        self.browser_picker = None;
         self.input.clear();
         self.selected = 0;
         self.update_filtered_count();
@@ -1095,6 +1119,88 @@ mod tests {
         let mut state = state_in_picker();
         state.show();
         assert!(state.picker.is_none());
+    }
+
+    fn browser_option(label: &str) -> BrowserOption {
+        BrowserOption {
+            label: label.to_string(),
+            value: format!("firefox -P {label}"),
+        }
+    }
+
+    fn state_in_browser_picker() -> WindowState {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.set_input("jira PROJ-1".to_string());
+        let action = state.selected_action_input().unwrap();
+        state.open_browser_picker(BrowserPicker::new(
+            "jira".to_string(),
+            action,
+            vec![
+                browser_option("integrator"),
+                browser_option("coach"),
+                browser_option("admin"),
+            ],
+        ));
+        state
+    }
+
+    fn browser_labels(state: &WindowState) -> Vec<String> {
+        state
+            .browser_entries()
+            .into_iter()
+            .map(|option| option.label)
+            .collect()
+    }
+
+    #[test]
+    fn open_browser_picker_clears_filter_and_keeps_typed_args() {
+        let state = state_in_browser_picker();
+        assert_eq!(state.input, "");
+        assert_eq!(state.selected, 0);
+        assert_eq!(browser_labels(&state), vec!["integrator", "coach", "admin"]);
+        assert_eq!(
+            state.browser_picker.as_ref().unwrap().action_input,
+            "jira PROJ-1"
+        );
+    }
+
+    #[test]
+    fn navigating_browser_picker_selects_entry() {
+        let mut state = state_in_browser_picker();
+        let count = state.browser_entries().len();
+        state.navigate_down_bounded(count);
+        assert_eq!(state.selected_browser(), Some(browser_option("coach")));
+        state.navigate_down_bounded(count);
+        state.navigate_down_bounded(count);
+        assert_eq!(state.selected_browser(), Some(browser_option("admin")));
+        state.navigate_up();
+        assert_eq!(state.selected_browser(), Some(browser_option("coach")));
+    }
+
+    #[test]
+    fn typing_filters_browser_picker() {
+        let mut state = state_in_browser_picker();
+        state.set_input("coa".to_string());
+        assert_eq!(browser_labels(&state), vec!["coach"]);
+        assert_eq!(state.selected_browser(), Some(browser_option("coach")));
+    }
+
+    #[test]
+    fn close_picker_leaves_browser_picker_for_item_list() {
+        let mut state = state_in_browser_picker();
+        state.close_picker();
+        assert!(state.browser_picker.is_none());
+        assert_eq!(state.input, "");
+        assert_eq!(state.filtered_count(), 3);
+        assert!(state.browser_entries().is_empty());
+    }
+
+    #[test]
+    fn show_leaves_browser_picker_mode() {
+        let mut state = state_in_browser_picker();
+        state.show();
+        assert!(state.browser_picker.is_none());
     }
 
     // --- Error surfacing (backlog a935) ---

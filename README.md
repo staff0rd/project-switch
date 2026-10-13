@@ -120,6 +120,27 @@ Each client may contain a `projects:` array. When a project is selected, the eff
 
 See `example-include-config.yml` for a full shared config example.
 
+## Browser choice
+
+A command's `browser` can be a list of `{label, value}` entries instead of a single string, to open the same URL under different identities (e.g. one Firefox profile each):
+
+```yaml
+global:
+  - key: member-dev
+    url: https://member.dev.apm-bl.com/
+    browser:
+      - label: integrator
+        value: firefox -P integrator
+      - label: integrator+coach
+        value: firefox -P coach
+```
+
+- With two or more entries, selecting the command in terminal `list` prompts with the labels; the chosen entry's `value` is launched exactly as a string `browser` would be, with the command's `args` and any typed URL args applied.
+- A one-entry list opens immediately, like a string.
+- The GUI launcher (hotkey / `list --gui`) and the hidden `open` command currently use the first entry.
+- Only command-level `browser` takes a list. A list on a client, project or `defaultBrowser`, an empty list, or duplicate labels in one list fail config load.
+- In an `include` merge, a local `browser` (string or list) replaces the base one entirely.
+
 ## Webview
 
 A command with `webview: true` opens its `url` in a single reusable webview window (Windows and macOS) instead of a browser. Only one webview window exists: if it is already open, selecting any webview command just brings it to the front and leaves its page alone.

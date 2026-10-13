@@ -1,5 +1,7 @@
 //! egui launcher window — renders the text input and filtered list.
 
+use crate::commands::list::{execute_action, BrowserPick};
+use crate::launcher::browser_picker::BrowserPicker;
 use crate::launcher::picker::{PickerEntry, PickerOutcome};
 use crate::launcher::{get_path_entries, CalcResult, ListItemKind};
 use crate::ui::state::{FilteredEntry, InputMode, Visibility, WindowState};
@@ -38,7 +40,7 @@ fn set_path_input(state: &mut WindowState, prev_input: &mut String, path: &str) 
 
 fn open_path_and_hide(state: &mut WindowState, path: String) {
     state.hide();
-    state.spawn_action(move || crate::commands::list::execute_action(&path));
+    state.spawn_action(move || execute_action(&path, BrowserPick::First));
 }
 
 fn execute_and_hide(state: &mut WindowState, action_input: &str) {
@@ -47,7 +49,103 @@ fn execute_and_hide(state: &mut WindowState, action_input: &str) {
     }
     let input = action_input.to_string();
     state.hide();
-    state.spawn_action(move || crate::commands::list::execute_action(&input));
+    state.spawn_action(move || execute_action(&input, BrowserPick::First));
+}
+
+fn activate_selected_item(state: &mut WindowState, prev_input: &mut String) {
+    let (Some(item), Some(action)) = (state.selected_item(), state.selected_action_input()) else {
+        return;
+    };
+    match item.kind {
+        ListItemKind::Switch => open_switch_picker(state, prev_input, &item.key),
+        ListItemKind::Command => match crate::commands::list::browser_choices(&item.key) {
+            Ok(Some(options)) => {
+                state.open_browser_picker(BrowserPicker::new(item.key, action, options));
+                *prev_input = state.input.clone();
+            }
+            Ok(None) => execute_and_hide(state, &action),
+            Err(e) => state.set_error(format!("{e:#}")),
+        },
+        ListItemKind::Shortcut { .. } => execute_and_hide(state, &action),
+    }
+}
+
+fn launch_with_browser(state: &mut WindowState, prev_input: &mut String, browser: String) {
+    let Some(picker) = state.browser_picker.take() else {
+        return;
+    };
+    state.close_picker();
+    *prev_input = state.input.clone();
+    state.hide();
+    let input = picker.action_input;
+    state.spawn_action(move || execute_action(&input, BrowserPick::Chosen(browser)));
+}
+
+fn navigate_rows(state: &mut WindowState, count: usize, key_down: bool, key_up: bool) -> usize {
+    if key_down {
+        state.navigate_down_bounded(count);
+    }
+    if key_up {
+        state.navigate_up();
+    }
+    state.selected.min(count.saturating_sub(1))
+}
+
+fn render_rows(
+    ui: &mut egui::Ui,
+    rows: Vec<egui::RichText>,
+    selected: usize,
+    key_moved: bool,
+    empty_message: &str,
+) -> Option<usize> {
+    let mut clicked = None;
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        if rows.is_empty() {
+            empty_list_label(ui, empty_message);
+        }
+        for (i, text) in rows.into_iter().enumerate() {
+            let is_selected = i == selected;
+            let text = if is_selected { text.strong() } else { text };
+            let response = ui.selectable_label(is_selected, text);
+            if response.clicked() {
+                clicked = Some(i);
+            }
+            keep_selected_visible(&response, is_selected, key_moved);
+        }
+    });
+    clicked
+}
+
+fn render_browser_picker(
+    ui: &mut egui::Ui,
+    state: &mut WindowState,
+    prev_input: &mut String,
+    key_down: bool,
+    key_up: bool,
+    key_enter: bool,
+) {
+    let entries = state.browser_entries();
+    let selected = navigate_rows(state, entries.len(), key_down, key_up);
+
+    let chosen = if key_enter {
+        state.selected_browser()
+    } else {
+        let rows = entries
+            .iter()
+            .map(|option| egui::RichText::new(format!("   {}", option.label)))
+            .collect();
+        render_rows(
+            ui,
+            rows,
+            selected,
+            key_down || key_up,
+            "No matching browsers",
+        )
+        .and_then(|i| entries.get(i).cloned())
+    };
+    if let Some(option) = chosen {
+        launch_with_browser(state, prev_input, option.value);
+    }
 }
 
 /// Enter the in-window client/project picker. The terminal `switch` prompt
@@ -96,46 +194,26 @@ fn render_picker(
         None => return,
     };
 
-    if key_down {
-        state.navigate_down_bounded(entries.len());
-    }
-    if key_up {
-        state.navigate_up();
-    }
-    let selected = state.selected.min(entries.len().saturating_sub(1));
+    let selected = navigate_rows(state, entries.len(), key_down, key_up);
 
-    if key_enter {
-        if let Some(entry) = entries.get(selected) {
-            activate_picker_entry(state, prev_input, entry);
-        }
-        return;
-    }
-
-    let mut clicked: Option<PickerEntry> = None;
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        for (i, entry) in entries.iter().enumerate() {
-            let is_selected = i == selected;
-            let mut text = if entry.is_current {
-                egui::RichText::new(format!("▶ {} (current)", entry.label)).color(CURRENT_COLOR)
-            } else {
-                egui::RichText::new(format!("   {}", entry.label))
-            };
-            if is_selected {
-                text = text.strong();
-            }
-            let response = ui.selectable_label(is_selected, text);
-            if response.clicked() {
-                clicked = Some(entry.clone());
-            }
-            keep_selected_visible(&response, is_selected, key_down || key_up);
-        }
-        if entries.is_empty() {
-            empty_list_label(ui, "No clients found");
-        }
-    });
-
-    if let Some(entry) = clicked {
-        activate_picker_entry(state, prev_input, &entry);
+    let chosen = if key_enter {
+        entries.get(selected)
+    } else {
+        let rows = entries
+            .iter()
+            .map(|entry| {
+                if entry.is_current {
+                    egui::RichText::new(format!("▶ {} (current)", entry.label)).color(CURRENT_COLOR)
+                } else {
+                    egui::RichText::new(format!("   {}", entry.label))
+                }
+            })
+            .collect();
+        render_rows(ui, rows, selected, key_down || key_up, "No clients found")
+            .and_then(|i| entries.get(i))
+    };
+    if let Some(entry) = chosen {
+        activate_picker_entry(state, prev_input, entry);
     }
 }
 
@@ -163,9 +241,10 @@ pub fn render_launcher(
         if response.dragged() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
-        let title = match &state.picker {
-            Some(picker) => picker.title(),
-            None => project_name.to_string(),
+        let title = match (&state.picker, &state.browser_picker) {
+            (Some(picker), _) => picker.title(),
+            (None, Some(picker)) => picker.title(),
+            (None, None) => project_name.to_string(),
         };
         ui.painter().text(
             title_rect.left_center() + egui::vec2(4.0, 0.0),
@@ -210,6 +289,9 @@ pub fn render_launcher(
                     state.close_picker();
                 }
                 *prev_input = state.input.clone();
+            } else if state.browser_picker.is_some() {
+                state.close_picker();
+                *prev_input = state.input.clone();
             } else {
                 state.hide();
             }
@@ -224,6 +306,10 @@ pub fn render_launcher(
 
         if state.picker.is_some() {
             render_picker(ui, state, prev_input, key_down, key_up, key_enter);
+            return;
+        }
+        if state.browser_picker.is_some() {
+            render_browser_picker(ui, state, prev_input, key_down, key_up, key_enter);
             return;
         }
 
@@ -266,13 +352,7 @@ pub fn render_launcher(
             }
             InputMode::FilePath => {
                 let entries = get_path_entries(&state.input);
-                if key_down {
-                    state.navigate_down_bounded(entries.len());
-                }
-                if key_up {
-                    state.navigate_up();
-                }
-                let selected = state.selected.min(entries.len().saturating_sub(1));
+                let selected = navigate_rows(state, entries.len(), key_down, key_up);
 
                 if key_enter && !entries.is_empty() {
                     let path = entries[selected].full_path.clone();
@@ -364,18 +444,7 @@ pub fn render_launcher(
                 let selected = state.selected;
 
                 if key_enter && !entries.is_empty() && selected < entries.len() {
-                    let is_switch = state
-                        .selected_item()
-                        .filter(|item| item.kind == ListItemKind::Switch)
-                        .map(|item| item.key);
-                    match is_switch {
-                        Some(key) => open_switch_picker(state, prev_input, &key),
-                        None => {
-                            if let Some(action) = state.selected_action_input() {
-                                execute_and_hide(state, &action);
-                            }
-                        }
-                    }
+                    activate_selected_item(state, prev_input);
                     return;
                 }
                 if key_enter && entries.is_empty() && crate::utils::url::is_url(&state.input) {

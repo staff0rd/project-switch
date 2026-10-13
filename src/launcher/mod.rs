@@ -1,6 +1,7 @@
 //! Shared launcher data model — filtering, matching, item types.
 //! Used by both the CLI `list` command and the windowed GUI launcher.
 
+pub mod browser_picker;
 pub mod picker;
 
 /// The kind of item in the launcher list.
