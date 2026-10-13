@@ -19,6 +19,16 @@ fn empty_list_label(ui: &mut egui::Ui, message: &str) {
     ui.label(egui::RichText::new(message).color(egui::Color32::GRAY));
 }
 
+fn move_caret_to_end(ctx: &egui::Context, id: egui::Id, text: &str) {
+    if let Some(mut edit_state) = egui::TextEdit::load_state(ctx, id) {
+        let end = egui::text::CCursor::new(text.chars().count());
+        edit_state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(end)));
+        edit_state.store(ctx, id);
+    }
+}
+
 fn set_path_input(state: &mut WindowState, prev_input: &mut String, path: &str) {
     state.input = path.to_string();
     *prev_input = state.input.clone();
@@ -169,7 +179,13 @@ pub fn render_launcher(
         let input_response = ui.add(
             egui::TextEdit::singleline(&mut state.input)
                 .hint_text("Type to filter...")
-                .desired_width(f32::INFINITY),
+                .desired_width(f32::INFINITY)
+                .event_filter(egui::EventFilter {
+                    tab: true,
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    ..Default::default()
+                }),
         );
         if !input_response.has_focus() {
             input_response.request_focus();
@@ -290,6 +306,16 @@ pub fn render_launcher(
                 });
             }
             InputMode::Normal => {
+                let key_tab =
+                    ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+                if key_tab {
+                    if let Some(completion) = state.selected_completion() {
+                        *prev_input = completion.clone();
+                        state.set_input(completion);
+                        move_caret_to_end(ui.ctx(), input_response.id, &state.input);
+                        ui.ctx().request_repaint();
+                    }
+                }
                 if key_down {
                     state.navigate_down();
                 }

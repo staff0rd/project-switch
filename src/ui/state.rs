@@ -367,6 +367,15 @@ impl WindowState {
         }
     }
 
+    pub fn selected_completion(&self) -> Option<String> {
+        let key = self.selected_item()?.key;
+        if key.contains(char::is_whitespace) {
+            Some(key)
+        } else {
+            Some(format!("{} ", key))
+        }
+    }
+
     /// Append additional items (e.g., shortcuts loaded asynchronously).
     /// Preserves the current input and selection.
     pub fn append_items(&mut self, new_items: Vec<ListItem>) {
@@ -936,6 +945,53 @@ mod tests {
         state.show();
         state.set_input("nonexistent".to_string());
         assert!(state.selected_action_input().is_none());
+    }
+
+    #[test]
+    fn selected_completion_partial_key_adds_trailing_space() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.set_input("ji".to_string());
+        assert_eq!(state.selected_completion().as_deref(), Some("jira "));
+    }
+
+    #[test]
+    fn selected_completion_uses_highlighted_not_first() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.navigate_down();
+        assert_eq!(state.selected_completion().as_deref(), Some("jira "));
+    }
+
+    #[test]
+    fn selected_completion_multi_word_key_has_no_trailing_space() {
+        let mut items = sample_items();
+        items.push(make_item("Visual Studio Code"));
+        let mut state = WindowState::new(items, vec![]);
+        state.show();
+        state.set_input("visual".to_string());
+        let completion = state.selected_completion().unwrap();
+        assert_eq!(completion, "Visual Studio Code");
+        state.set_input(completion);
+        assert_eq!(
+            state.selected_action_input().as_deref(),
+            Some("Visual Studio Code")
+        );
+    }
+
+    #[test]
+    fn selected_completion_empty_list_returns_none() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.set_input("nonexistent".to_string());
+        assert!(state.selected_completion().is_none());
+    }
+
+    #[test]
+    fn selected_completion_non_item_recent_returns_none() {
+        let mut state = WindowState::new(sample_items(), vec!["=1+1".to_string()]);
+        state.show();
+        assert!(state.selected_completion().is_none());
     }
 
     #[test]

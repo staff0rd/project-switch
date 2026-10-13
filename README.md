@@ -37,6 +37,10 @@ project-switch current
 project-switch list
 ```
 
+### Tab completion
+
+In the launcher (terminal `list`, `list --gui` and the hotkey launcher), Tab completes the highlighted item's key. In the GUI it fills the full key plus a space, ready for arguments: type `fire`, press Tab, type `integrator`, press Enter to run `firefox-create-profile integrator`. Keys that contain spaces (e.g. a `Visual Studio Code` shortcut) are filled without the trailing space.
+
 ### Built-in switch item
 
 The launcher list (terminal `list`, `list --gui` and the hotkey launcher) always contains a `switch` item — no config needed. Its detail column shows the active selection (e.g. `apm / web`), matching `project-switch current`. It ranks by recency like any other item. In the GUI, Enter opens the in-window client/project picker; in the terminal it runs the interactive `switch` prompt.

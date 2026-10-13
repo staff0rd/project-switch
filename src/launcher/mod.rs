@@ -319,11 +319,13 @@ pub fn filter_items<'a>(items: &'a [ListItem], query: &str) -> Vec<&'a ListItem>
         let keyword = query.split_whitespace().next().unwrap_or(query);
         let keyword_lower = keyword.to_lowercase();
         let has_args = query.contains(' ');
+        let query_lower = query.trim().to_lowercase();
         let mut matched: Vec<&ListItem> = items
             .iter()
             .filter(|item| {
                 if has_args {
-                    item.key.to_lowercase() == keyword_lower
+                    let key_lower = item.key.to_lowercase();
+                    key_lower == keyword_lower || key_lower == query_lower
                 } else {
                     item.matches(keyword)
                 }
@@ -695,6 +697,14 @@ mod tests {
         let filtered = filter_items(&items, "g some text");
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].key, "g");
+    }
+
+    #[test]
+    fn filter_items_full_multi_word_key_matches() {
+        let items = sample_items();
+        let filtered = filter_items(&items, "visual studio code");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key, "Visual Studio Code");
     }
 
     #[test]
