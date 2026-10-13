@@ -1,4 +1,4 @@
-use crate::config::ConfigManager;
+use crate::config::{BrowserOption, CommandBrowser, ConfigManager};
 use crate::launcher::{
     encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path, merge_args,
     order_recent_keys, resolve_item, strip_ansi_codes, CalcResult, ListItem, ListItemKind,
@@ -239,6 +239,37 @@ fn collect_shortcut_items(extra_paths: &[String], exclude: &[String]) -> Vec<Lis
         .collect()
 }
 
+pub enum BrowserPick {
+    Prompt,
+    First,
+    Chosen(String),
+}
+
+fn choose_browser<'a>(browser: &'a CommandBrowser, pick: &'a BrowserPick) -> Result<&'a str> {
+    let options = match (pick, browser.choices()) {
+        (BrowserPick::Chosen(value), _) => return Ok(value),
+        (BrowserPick::Prompt, Some(options)) => options,
+        _ => return Ok(browser.first_value()),
+    };
+    let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
+    let label = inquire::Select::new("Open with:", labels).prompt()?;
+    Ok(options
+        .iter()
+        .find(|o| o.label == label)
+        .map_or_else(|| browser.first_value(), |o| o.value.as_str()))
+}
+
+pub fn browser_choices(key: &str) -> Result<Option<Vec<BrowserOption>>> {
+    let config_manager = ConfigManager::new()?;
+    let (commands, _) = load_command_items(&config_manager);
+    Ok(commands
+        .into_iter()
+        .find(|cmd| cmd.key.eq_ignore_ascii_case(key))
+        .filter(|cmd| cmd.command.is_none() && !cmd.webview)
+        .and_then(|cmd| cmd.browser)
+        .and_then(|browser| browser.choices().map(<[_]>::to_vec)))
+}
+
 pub fn load_items(
     config_manager: &ConfigManager,
 ) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
@@ -256,7 +287,7 @@ pub fn load_items(
 
 /// Execute an action from the GUI launcher. Called when user presses Enter.
 /// Takes the raw input text from the GUI and dispatches the appropriate action.
-pub fn execute_action(input: &str) -> Result<()> {
+pub fn execute_action(input: &str, browser_pick: BrowserPick) -> Result<()> {
     let config_manager = ConfigManager::new()?;
     let resolved = config_manager.resolve_current();
     let scope_browser: Option<String> = resolved.as_ref().and_then(|(_, client, project)| {
@@ -332,9 +363,12 @@ pub fn execute_action(input: &str) -> Result<()> {
                             )
                         })?;
 
-                        let resolved_browser = selected_command
+                        let command_browser = selected_command
                             .browser
-                            .as_deref()
+                            .as_ref()
+                            .map(|b| choose_browser(b, &browser_pick))
+                            .transpose()?;
+                        let resolved_browser = command_browser
                             .or(scope_browser.as_deref())
                             .or_else(|| Some(config_manager.get_default_browser()));
 
@@ -510,7 +544,7 @@ pub fn execute(_debug: bool) -> Result<()> {
         }
     };
 
-    execute_action(&cleaned_input)
+    execute_action(&cleaned_input, BrowserPick::Prompt)
 }
 
 #[cfg(test)]

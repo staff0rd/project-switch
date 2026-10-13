@@ -63,7 +63,8 @@ pub fn execute(key: &str) -> Result<()> {
     // Browser hierarchy: command > project > client > config > default
     let browser = command
         .browser
-        .as_deref()
+        .as_ref()
+        .map(|b| b.first_value())
         .or(scope_browser)
         .unwrap_or_else(|| config_manager.get_default_browser());
 
