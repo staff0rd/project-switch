@@ -245,18 +245,26 @@ pub enum BrowserPick {
     Chosen(String),
 }
 
-fn choose_browser<'a>(browser: &'a CommandBrowser, pick: &'a BrowserPick) -> Result<&'a str> {
+fn choose_browser(
+    command_key: &str,
+    browser: &CommandBrowser,
+    pick: &BrowserPick,
+) -> Result<String> {
     let options = match (pick, browser.choices()) {
-        (BrowserPick::Chosen(value), _) => return Ok(value),
-        (BrowserPick::Prompt, Some(options)) => options,
-        _ => return Ok(browser.first_value()),
+        (BrowserPick::Chosen(value), _) => return Ok(value.clone()),
+        (BrowserPick::Prompt, Some(options)) => {
+            crate::browser_choice::ordered(command_key, options)
+        }
+        _ => return Ok(browser.first_value().to_string()),
     };
     let labels: Vec<&str> = options.iter().map(|o| o.label.as_str()).collect();
     let label = inquire::Select::new("Open with:", labels).prompt()?;
+    crate::browser_choice::record(command_key, label).ok();
     Ok(options
         .iter()
         .find(|o| o.label == label)
-        .map_or_else(|| browser.first_value(), |o| o.value.as_str()))
+        .map_or_else(|| browser.first_value(), |o| o.value.as_str())
+        .to_string())
 }
 
 pub fn browser_choices(key: &str) -> Result<Option<Vec<BrowserOption>>> {
@@ -266,8 +274,10 @@ pub fn browser_choices(key: &str) -> Result<Option<Vec<BrowserOption>>> {
         .into_iter()
         .find(|cmd| cmd.key.eq_ignore_ascii_case(key))
         .filter(|cmd| cmd.command.is_none() && !cmd.webview)
-        .and_then(|cmd| cmd.browser)
-        .and_then(|browser| browser.choices().map(<[_]>::to_vec)))
+        .and_then(|cmd| {
+            let options = cmd.browser.as_ref()?.choices()?;
+            Some(crate::browser_choice::ordered(&cmd.key, options))
+        }))
 }
 
 pub fn load_items(
@@ -366,9 +376,10 @@ pub fn execute_action(input: &str, browser_pick: BrowserPick) -> Result<()> {
                         let command_browser = selected_command
                             .browser
                             .as_ref()
-                            .map(|b| choose_browser(b, &browser_pick))
+                            .map(|b| choose_browser(&selected_command.key, b, &browser_pick))
                             .transpose()?;
                         let resolved_browser = command_browser
+                            .as_deref()
                             .or(scope_browser.as_deref())
                             .or_else(|| Some(config_manager.get_default_browser()));
 

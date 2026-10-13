@@ -1,6 +1,7 @@
 //! egui launcher window — renders the text input and filtered list.
 
 use crate::commands::list::{execute_action, BrowserPick};
+use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
 use crate::launcher::picker::{PickerEntry, PickerOutcome};
 use crate::launcher::{get_path_entries, CalcResult, ListItemKind};
@@ -70,15 +71,16 @@ fn activate_selected_item(state: &mut WindowState, prev_input: &mut String) {
     }
 }
 
-fn launch_with_browser(state: &mut WindowState, prev_input: &mut String, browser: String) {
+fn launch_with_browser(state: &mut WindowState, prev_input: &mut String, option: BrowserOption) {
     let Some(picker) = state.browser_picker.take() else {
         return;
     };
     state.close_picker();
     *prev_input = state.input.clone();
     state.hide();
+    crate::browser_choice::record(&picker.command_key, &option.label).ok();
     let input = picker.action_input;
-    state.spawn_action(move || execute_action(&input, BrowserPick::Chosen(browser)));
+    state.spawn_action(move || execute_action(&input, BrowserPick::Chosen(option.value)));
 }
 
 fn navigate_rows(state: &mut WindowState, count: usize, key_down: bool, key_up: bool) -> usize {
@@ -144,7 +146,7 @@ fn render_browser_picker(
         .and_then(|i| entries.get(i).cloned())
     };
     if let Some(option) = chosen {
-        launch_with_browser(state, prev_input, option.value);
+        launch_with_browser(state, prev_input, option);
     }
 }
 

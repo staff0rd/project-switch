@@ -1,3 +1,4 @@
+mod browser_choice;
 mod commands;
 mod config;
 mod history;

@@ -137,7 +137,8 @@ global:
 
 - With two or more entries, selecting the command in terminal `list` prompts with the labels; the chosen entry's `value` is launched exactly as a string `browser` would be, with the command's `args` and any typed URL args applied.
 - A one-entry list opens immediately, like a string.
-- The GUI launcher (hotkey / `list --gui`) and the hidden `open` command currently use the first entry.
+- The GUI launcher (hotkey / `list --gui`) shows the labels in the window; Enter opens with the chosen entry and Esc returns to the item list. The hidden `open` command uses the first entry.
+- The last label picked for each command is remembered in `~/.project-switch-browser-choices.yml` and listed first next time; a remembered label no longer in the list is ignored.
 - Only command-level `browser` takes a list. A list on a client, project or `defaultBrowser`, an empty list, or duplicate labels in one list fail config load.
 - In an `include` merge, a local `browser` (string or list) replaces the base one entirely.
 
