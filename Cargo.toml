@@ -70,6 +70,9 @@ windows = { version = "0.62", features = [
 wry = "0.45"
 tao = "0.30"
 raw-window-handle = "0.6"
+# Pinned to wry 0.45's versions (windows 0.58) so settings can be cast to ICoreWebView2Settings4.
+webview2-com = "0.33"
+windows-core = "0.58"
 
 [build-dependencies]
 winresource = "0.1"

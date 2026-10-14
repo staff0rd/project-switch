@@ -488,6 +488,7 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
         .context("Failed to create WebView2 window")?;
 
     enable_status_bar(&webview);
+    disable_autofill(&webview);
     let _ = webview.focus();
 
     let toast_proxy = event_loop.create_proxy();
@@ -566,6 +567,25 @@ fn enable_status_bar(webview: &wry::WebView) {
             .and_then(|w| w.Settings())
         {
             let _ = settings.SetIsStatusBarEnabled(true);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn disable_autofill(webview: &wry::WebView) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings4;
+    use windows_core::Interface;
+    use wry::WebViewExtWindows;
+
+    unsafe {
+        if let Ok(settings) = webview
+            .controller()
+            .CoreWebView2()
+            .and_then(|w| w.Settings())
+            .and_then(|s| s.cast::<ICoreWebView2Settings4>())
+        {
+            let _ = settings.SetIsGeneralAutofillEnabled(false);
+            let _ = settings.SetIsPasswordAutosaveEnabled(false);
         }
     }
 }
