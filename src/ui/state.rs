@@ -5,6 +5,7 @@
 
 use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
+use crate::launcher::key_combo::KeyCombo;
 use crate::launcher::picker::PickerState;
 use crate::launcher::{
     eval_calc_input, filter_items, is_file_path, order_recent_keys, CalcResult, ListItem,
@@ -391,6 +392,13 @@ impl WindowState {
         }
     }
 
+    pub fn hotkey_item(&self, combo: KeyCombo) -> Option<ListItem> {
+        self.items
+            .iter()
+            .find(|item| item.hotkey == Some(combo))
+            .cloned()
+    }
+
     pub fn selected_completion(&self) -> Option<String> {
         let key = self.selected_item()?.key;
         if key.contains(char::is_whitespace) {
@@ -423,6 +431,7 @@ mod tests {
             display_detail: format!("https://{}.com/", key),
             kind: ListItemKind::Command,
             pinned: false,
+            hotkey: None,
         }
     }
 
@@ -432,6 +441,7 @@ mod tests {
             display_detail: format!("https://{}.com/", key),
             kind: ListItemKind::Command,
             pinned: true,
+            hotkey: None,
         }
     }
 
@@ -466,6 +476,7 @@ mod tests {
             display_detail: "https://google.com/search?q=".to_string(),
             kind: ListItemKind::Command,
             pinned: false,
+            hotkey: None,
         });
         items
     }
@@ -736,9 +747,22 @@ mod tests {
             display_detail: String::new(),
             kind: ListItemKind::Command,
             pinned: false,
+            hotkey: None,
         }]);
         assert_eq!(state.selected, 0);
         assert_eq!(state.filtered_count(), 1);
+    }
+
+    #[test]
+    fn hotkey_item_finds_bound_item_regardless_of_filter() {
+        let combo: KeyCombo = "alt+j".parse().unwrap();
+        let mut items = sample_items();
+        items[1].hotkey = Some(combo);
+        let mut state = WindowState::new(items, vec![]);
+        state.show();
+        state.set_input("git".to_string());
+        assert_eq!(state.hotkey_item(combo).unwrap().key, "jira");
+        assert!(state.hotkey_item("alt+k".parse().unwrap()).is_none());
     }
 
     // --- Recent items ---
@@ -915,6 +939,7 @@ mod tests {
                 display_detail: "https://google.com/search?q=".to_string(),
                 kind: ListItemKind::Command,
                 pinned: false,
+                hotkey: None,
             })
         );
         // The full input (key + args) must be available for execute_action
@@ -1039,6 +1064,7 @@ mod tests {
             display_detail: "project-switch.exe switch".to_string(),
             kind: ListItemKind::Switch,
             pinned: false,
+            hotkey: None,
         }
     }
 

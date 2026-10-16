@@ -159,6 +159,33 @@ global:
     navigate: true           # also routes an open window to /?new
 ```
 
+## Keyboard shortcuts
+
+Add `hotkey` to a command to run it with one keystroke in the GUI launcher (hotkey / `list --gui`):
+
+```yaml
+global:
+  - key: assist
+    url: http://localhost:3100
+    webview: true
+    hotkey: alt+a
+  - key: assist - new
+    url: http://localhost:3100/?new
+    webview: true
+    navigate: true
+    hotkey: alt+n
+  - key: next
+    command: ...
+    hotkey: alt+x
+```
+
+- Format: one or more of `alt`/`ctrl`/`shift` plus a single letter or digit, joined by `+`, case-insensitive (`alt+a`, `ctrl+shift+1`). A key with no modifier is invalid.
+- Pressing the combo in the main item list runs the command exactly as if it were selected and Enter pressed, whatever is typed; the letter is not inserted into the input. A multi-entry `browser` list still opens the browser picker.
+- Hotkeys are ignored while the switch picker or browser picker is open, and in calculator (`=`) or file path input.
+- Only commands in the active effective set (project > client > global) are bound. When levels share a combo, the more specific level wins.
+- An invalid `hotkey`, or two commands in the same command list sharing a combo, fails config load. In an `include` merge, `hotkey` merges by command key like other command fields.
+- Not supported in terminal `list`.
+
 ## Webserver
 
 The `project-switch-hotkey` tray app can manage background webservers (the assist UI). Configure them as a `webservers` list in `~/.project-switch.yml`; each gets its own tray submenu (Enabled, Restart, Open in browser, View logs):

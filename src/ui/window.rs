@@ -3,8 +3,9 @@
 use crate::commands::list::{execute_action, BrowserPick};
 use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
+use crate::launcher::key_combo::KeyCombo;
 use crate::launcher::picker::{PickerEntry, PickerOutcome};
-use crate::launcher::{get_path_entries, CalcResult, ListItemKind};
+use crate::launcher::{get_path_entries, CalcResult, ListItem, ListItemKind};
 use crate::ui::state::{FilteredEntry, InputMode, Visibility, WindowState};
 use eframe::egui;
 
@@ -57,6 +58,10 @@ fn activate_selected_item(state: &mut WindowState, prev_input: &mut String) {
     let (Some(item), Some(action)) = (state.selected_item(), state.selected_action_input()) else {
         return;
     };
+    activate_item(state, prev_input, item, action);
+}
+
+fn activate_item(state: &mut WindowState, prev_input: &mut String, item: ListItem, action: String) {
     match item.kind {
         ListItemKind::Switch => open_switch_picker(state, prev_input, &item.key),
         ListItemKind::Command => match crate::commands::list::browser_choices(&item.key) {
@@ -69,6 +74,44 @@ fn activate_selected_item(state: &mut WindowState, prev_input: &mut String) {
         },
         ListItemKind::Shortcut { .. } => execute_and_hide(state, &action),
     }
+}
+
+fn pressed_combo(event: &egui::Event) -> Option<KeyCombo> {
+    let egui::Event::Key {
+        key,
+        pressed: true,
+        modifiers,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    let mut name = key.name().chars();
+    let key = match (name.next(), name.next()) {
+        (Some(c), None) if c.is_ascii_alphanumeric() => c.to_ascii_uppercase(),
+        _ => return None,
+    };
+    Some(KeyCombo {
+        alt: modifiers.alt,
+        ctrl: modifiers.ctrl,
+        shift: modifiers.shift,
+        key,
+    })
+}
+
+fn consume_hotkey_and_its_text(ui: &egui::Ui, state: &WindowState) -> Option<ListItem> {
+    ui.input_mut(|input| {
+        let (index, item) = input.events.iter().enumerate().find_map(|(i, event)| {
+            pressed_combo(event)
+                .and_then(|combo| state.hotkey_item(combo))
+                .map(|item| (i, item))
+        })?;
+        input.events.remove(index);
+        input
+            .events
+            .retain(|event| !matches!(event, egui::Event::Text(_)));
+        Some(item)
+    })
 }
 
 fn launch_with_browser(state: &mut WindowState, prev_input: &mut String, option: BrowserOption) {
@@ -255,6 +298,18 @@ pub fn render_launcher(
             egui::FontId::proportional(16.0),
             egui::Color32::GRAY,
         );
+
+        let main_list_open = state.picker.is_none()
+            && state.browser_picker.is_none()
+            && state.input_mode() == InputMode::Normal;
+        if main_list_open {
+            if let Some(item) = consume_hotkey_and_its_text(ui, state) {
+                let action = item.key.clone();
+                activate_item(state, prev_input, item, action);
+                ui.ctx().request_repaint();
+                return;
+            }
+        }
 
         // Text input
         let input_response = ui.add(
@@ -461,12 +516,7 @@ pub fn render_launcher(
                         let label = match entry {
                             FilteredEntry::Item(item) => match &item.kind {
                                 ListItemKind::Command | ListItemKind::Switch => {
-                                    let detail = if item.display_detail.len() > 50 {
-                                        format!("{}...", &item.display_detail[..47])
-                                    } else {
-                                        item.display_detail.clone()
-                                    };
-                                    let text = format!("{}  -  {}", item.key, detail);
+                                    let text = item.row_text();
                                     if is_selected {
                                         egui::RichText::new(text).strong()
                                     } else {

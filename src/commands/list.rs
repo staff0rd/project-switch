@@ -1,4 +1,5 @@
-use crate::config::{BrowserOption, CommandBrowser, ConfigManager};
+use crate::config::{BrowserOption, CommandBrowser, ConfigManager, ProjectCommand};
+use crate::launcher::key_combo::KeyCombo;
 use crate::launcher::{
     encode_url_args, eval_calc_input, filter_items, get_path_entries, is_file_path, merge_args,
     order_recent_keys, resolve_item, strip_ansi_codes, CalcResult, ListItem, ListItemKind,
@@ -9,6 +10,7 @@ use crate::utils::url::is_url;
 use anyhow::Result;
 use colored::*;
 use inquire::Autocomplete;
+use std::collections::{HashMap, HashSet};
 
 const PATH_PREFIX: &str = "[path] ";
 
@@ -177,9 +179,7 @@ pub fn selection_display_name(config_manager: &ConfigManager) -> String {
 /// Load only command items from config (fast — no filesystem scanning).
 /// Effective command set precedence when a project is active:
 /// project > client > global.
-fn load_command_items(
-    config_manager: &ConfigManager,
-) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
+fn load_command_items(config_manager: &ConfigManager) -> (Vec<ProjectCommand>, Vec<ListItem>) {
     let resolved = config_manager.resolve_current();
 
     let mut all_commands = Vec::new();
@@ -196,14 +196,17 @@ fn load_command_items(
     if let Some(global_commands) = config_manager.get_global_commands() {
         all_commands.extend(global_commands.iter().cloned());
     }
+    let mut seen_keys = HashSet::new();
+    all_commands.retain(|cmd| seen_keys.insert(cmd.key.clone()));
+    let hotkeys = bind_hotkeys_first_wins(&all_commands);
     all_commands.sort_by(|a, b| a.key.cmp(&b.key));
-    all_commands.dedup_by(|a, b| a.key == b.key);
 
     let builtin_switch = ListItem {
         key: "switch".to_string(),
         display_detail: selection_display_name(config_manager),
         kind: ListItemKind::Switch,
         pinned: false,
+        hotkey: None,
     };
 
     let all_items: Vec<ListItem> = std::iter::once(builtin_switch)
@@ -217,11 +220,21 @@ fn load_command_items(
                     .unwrap_or_default(),
                 kind: ListItemKind::Command,
                 pinned: cmd.pinned,
+                hotkey: hotkeys.get(&cmd.key).copied(),
             }
         }))
         .collect();
 
     (all_commands, all_items)
+}
+
+fn bind_hotkeys_first_wins(commands_by_precedence: &[ProjectCommand]) -> HashMap<String, KeyCombo> {
+    let mut bound = HashSet::new();
+    commands_by_precedence
+        .iter()
+        .filter_map(|cmd| Some((cmd.key.clone(), cmd.key_combo()?)))
+        .filter(|(_, combo)| bound.insert(*combo))
+        .collect()
 }
 
 /// Collect shortcut items from the filesystem.
@@ -235,6 +248,7 @@ fn collect_shortcut_items(extra_paths: &[String], exclude: &[String]) -> Vec<Lis
                 path: entry.path.display().to_string(),
             },
             pinned: false,
+            hotkey: None,
         })
         .collect()
 }
@@ -280,9 +294,7 @@ pub fn browser_choices(key: &str) -> Result<Option<Vec<BrowserOption>>> {
         }))
 }
 
-pub fn load_items(
-    config_manager: &ConfigManager,
-) -> (Vec<crate::config::ProjectCommand>, Vec<ListItem>) {
+pub fn load_items(config_manager: &ConfigManager) -> (Vec<ProjectCommand>, Vec<ListItem>) {
     let (all_commands, mut all_items) = load_command_items(config_manager);
 
     let shortcuts_config = config_manager.get_shortcuts_config();
@@ -638,5 +650,91 @@ global:
     fn builtin_switch_detail_falls_back_to_global() {
         let cm = make_manager("shortcuts:\n  enabled: false\n");
         assert_eq!(builtin_switch(&cm).display_detail, "global");
+    }
+
+    fn item_hotkey(items: &[ListItem], key: &str) -> Option<String> {
+        items
+            .iter()
+            .find(|item| item.key == key)
+            .unwrap()
+            .hotkey
+            .map(|combo| combo.to_string())
+    }
+
+    #[test]
+    fn command_items_carry_parsed_hotkey() {
+        let cm = make_manager(
+            "\
+shortcuts:
+  enabled: false
+global:
+- key: assist
+  url: https://x
+  hotkey: alt+a
+- key: git
+  url: https://y
+",
+        );
+        let (_, items) = load_items(&cm);
+        assert_eq!(item_hotkey(&items, "assist").as_deref(), Some("Alt+A"));
+        assert_eq!(item_hotkey(&items, "git"), None);
+    }
+
+    #[test]
+    fn more_specific_level_wins_shared_hotkey() {
+        let cm = make_manager(
+            "\
+shortcuts:
+  enabled: false
+currentClient: apm
+currentProject: web
+global:
+- key: a-global
+  url: https://g
+  hotkey: alt+a
+- key: b-global
+  url: https://g
+  hotkey: alt+b
+clients:
+- name: apm
+  commands:
+  - key: b-client
+    url: https://c
+    hotkey: alt+b
+  projects:
+  - name: web
+    commands:
+    - key: z-project
+      url: https://p
+      hotkey: alt+a
+",
+        );
+        let (_, items) = load_items(&cm);
+        assert_eq!(item_hotkey(&items, "z-project").as_deref(), Some("Alt+A"));
+        assert_eq!(item_hotkey(&items, "a-global"), None);
+        assert_eq!(item_hotkey(&items, "b-client").as_deref(), Some("Alt+B"));
+        assert_eq!(item_hotkey(&items, "b-global"), None);
+    }
+
+    #[test]
+    fn overridden_command_drops_less_specific_hotkey() {
+        let cm = make_manager(
+            "\
+shortcuts:
+  enabled: false
+currentClient: apm
+global:
+- key: assist
+  url: https://g
+  hotkey: alt+a
+clients:
+- name: apm
+  commands:
+  - key: assist
+    url: https://c
+",
+        );
+        let (_, items) = load_items(&cm);
+        assert_eq!(item_hotkey(&items, "assist"), None);
     }
 }

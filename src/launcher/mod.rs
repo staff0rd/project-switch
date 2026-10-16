@@ -2,7 +2,10 @@
 //! Used by both the CLI `list` command and the windowed GUI launcher.
 
 pub mod browser_picker;
+pub mod key_combo;
 pub mod picker;
+
+use key_combo::KeyCombo;
 
 /// The kind of item in the launcher list.
 #[derive(Debug, Clone, PartialEq)]
@@ -24,11 +27,29 @@ pub struct ListItem {
     pub kind: ListItemKind,
     /// Whether this command is pinned to the top of the recent list.
     pub pinned: bool,
+    pub hotkey: Option<KeyCombo>,
 }
 
 impl ListItem {
     pub fn matches(&self, query: &str) -> bool {
         self.key.to_lowercase().contains(&query.to_lowercase())
+    }
+
+    pub fn row_text(&self) -> String {
+        let detail = if self.display_detail.len() > 50 {
+            format!("{}...", &self.display_detail[..47])
+        } else {
+            self.display_detail.clone()
+        };
+        match self.hotkey {
+            Some(combo) => format!(
+                "{}  -  {}  [{}]",
+                self.key,
+                detail,
+                combo.to_string().to_lowercase()
+            ),
+            None => format!("{}  -  {}", self.key, detail),
+        }
     }
 }
 
@@ -400,18 +421,21 @@ mod tests {
                 display_detail: "https://github.com/".to_string(),
                 kind: ListItemKind::Command,
                 pinned: false,
+                hotkey: None,
             },
             ListItem {
                 key: "jira".to_string(),
                 display_detail: "https://jira.example.com/".to_string(),
                 kind: ListItemKind::Command,
                 pinned: false,
+                hotkey: None,
             },
             ListItem {
                 key: "slack".to_string(),
                 display_detail: "https://slack.com/".to_string(),
                 kind: ListItemKind::Command,
                 pinned: false,
+                hotkey: None,
             },
             ListItem {
                 key: "Visual Studio Code".to_string(),
@@ -420,6 +444,7 @@ mod tests {
                     path: "C:\\ProgramData\\Start Menu\\Visual Studio Code.lnk".to_string(),
                 },
                 pinned: false,
+                hotkey: None,
             },
         ]
     }
@@ -694,6 +719,7 @@ mod tests {
             display_detail: "https://google.com/search?q=".to_string(),
             kind: ListItemKind::Command,
             pinned: false,
+            hotkey: None,
         });
         let filtered = filter_items(&items, "g some text");
         assert_eq!(filtered.len(), 1);
@@ -754,6 +780,7 @@ mod tests {
                 display_detail: String::new(),
                 kind: ListItemKind::Command,
                 pinned: false,
+                hotkey: None,
             })
             .collect()
     }
@@ -785,6 +812,7 @@ mod tests {
             display_detail: "https://google.com/search?q=".to_string(),
             kind: ListItemKind::Command,
             pinned: false,
+            hotkey: None,
         });
         let (item, args) = resolve_item(&items, "g some text").unwrap();
         assert_eq!(item.key, "g");
@@ -838,6 +866,7 @@ mod tests {
             display_detail: format!("https://{}/", key),
             kind: ListItemKind::Command,
             pinned,
+            hotkey: None,
         }
     }
 
@@ -938,10 +967,19 @@ mod tests {
             display_detail: String::new(),
             kind: ListItemKind::Command,
             pinned: false,
+            hotkey: None,
         };
         assert!(item.matches("github"));
         assert!(item.matches("Git"));
         assert!(item.matches("GITHUB"));
         assert!(!item.matches("jira"));
+    }
+
+    #[test]
+    fn row_text_shows_bound_hotkey() {
+        let mut item = cmd_item("assist", false);
+        assert_eq!(item.row_text(), "assist  -  https://assist/");
+        item.hotkey = Some("ALT+a".parse().unwrap());
+        assert_eq!(item.row_text(), "assist  -  https://assist/  [alt+a]");
     }
 }

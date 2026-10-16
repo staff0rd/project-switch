@@ -1,3 +1,4 @@
+use crate::launcher::key_combo::KeyCombo;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -112,6 +113,14 @@ pub struct ProjectCommand {
     /// opens with empty input, regardless of when it was last used.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pinned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hotkey: Option<String>,
+}
+
+impl ProjectCommand {
+    pub fn key_combo(&self) -> Option<KeyCombo> {
+        self.hotkey.as_deref()?.parse().ok()
+    }
 }
 
 /// Declares an entry struct carrying the schema shared by clients and projects
@@ -382,7 +391,30 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
         webview: overlay.webview || base.webview,
         navigate: overlay.navigate || base.navigate,
         pinned: overlay.pinned || base.pinned,
+        hotkey: overlay.hotkey.or(base.hotkey),
     }
+}
+
+fn validate_hotkeys(commands: &[ProjectCommand], context: &str) -> Result<()> {
+    let mut seen: std::collections::HashMap<KeyCombo, &str> = std::collections::HashMap::new();
+    for cmd in commands {
+        let Some(hotkey) = cmd.hotkey.as_deref() else {
+            continue;
+        };
+        let combo: KeyCombo = hotkey
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Command '{}' in {} has an {}", cmd.key, context, e))?;
+        if let Some(other) = seen.insert(combo, &cmd.key) {
+            anyhow::bail!(
+                "Command '{}' in {} uses hotkey '{}', already bound to '{}'",
+                cmd.key,
+                context,
+                combo,
+                other
+            );
+        }
+    }
+    Ok(())
 }
 
 fn validate_command_list(commands: &[ProjectCommand], context: &str) -> Result<()> {
@@ -436,16 +468,23 @@ fn validate_command_list(commands: &[ProjectCommand], context: &str) -> Result<(
             );
         }
     }
-    Ok(())
+    validate_hotkeys(commands, context)
 }
 
 fn validate_commands(config: &Config) -> Result<()> {
+    for_each_command_list(config, validate_command_list)
+}
+
+fn for_each_command_list(
+    config: &Config,
+    check: impl Fn(&[ProjectCommand], &str) -> Result<()>,
+) -> Result<()> {
     if let Some(ref global) = config.global {
-        validate_command_list(global, "global commands")?;
+        check(global, "global commands")?;
     }
     for client in &config.clients {
         if let Some(ref commands) = client.commands {
-            validate_command_list(commands, &format!("client '{}'", client.name))?;
+            check(commands, &format!("client '{}'", client.name))?;
         }
         if let Some(ref projects) = client.projects {
             let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -458,7 +497,7 @@ fn validate_commands(config: &Config) -> Result<()> {
                     );
                 }
                 if let Some(ref commands) = project.commands {
-                    validate_command_list(
+                    check(
                         commands,
                         &format!("project '{}' in client '{}'", project.name, client.name),
                     )?;
@@ -518,7 +557,9 @@ impl ConfigManager {
                     validate_commands(&base_config).with_context(|| {
                         format!("Invalid included config: {}", resolved.display())
                     })?;
-                    merge_configs(base_config, local_config)
+                    let merged = merge_configs(base_config, local_config);
+                    for_each_command_list(&merged, validate_hotkeys)?;
+                    merged
                 } else {
                     eprintln!("Warning: included config not found: {}", resolved.display());
                     local_config
@@ -843,6 +884,7 @@ clients:
             webview: false,
             navigate: false,
             pinned: false,
+            hotkey: None,
         };
         let yaml = serde_yaml::to_string(&cmd).unwrap();
         assert!(!yaml.contains("pinned"), "got: {}", yaml);
@@ -1069,5 +1111,86 @@ clients:
         );
         let browser = global_browser(&make_manager(&local)).unwrap();
         assert_eq!(browser.choices().map(<[_]>::len), Some(2));
+    }
+
+    #[test]
+    fn hotkey_omitted_when_unset_and_round_trips_when_set() {
+        let unset: ProjectCommand = serde_yaml::from_str("key: a\nurl: https://x\n").unwrap();
+        assert!(!serde_yaml::to_string(&unset).unwrap().contains("hotkey"));
+
+        let set: ProjectCommand =
+            serde_yaml::from_str("key: a\nurl: https://x\nhotkey: alt+a\n").unwrap();
+        assert!(serde_yaml::to_string(&set)
+            .unwrap()
+            .contains("hotkey: alt+a"));
+        assert_eq!(set.key_combo(), Some("alt+a".parse().unwrap()));
+    }
+
+    #[test]
+    fn invalid_hotkey_is_rejected_naming_the_command() {
+        let err = load_error("global:\n- key: assist\n  url: https://x\n  hotkey: a\n");
+        assert!(err.contains("Command 'assist'"), "got: {err}");
+        assert!(err.contains("invalid hotkey 'a'"), "got: {err}");
+    }
+
+    #[test]
+    fn duplicate_hotkey_in_one_list_is_rejected() {
+        let err = load_error(
+            "\
+clients:
+- name: c
+  commands:
+  - key: one
+    url: https://x
+    hotkey: alt+a
+  - key: two
+    url: https://y
+    hotkey: ALT+A
+",
+        );
+        assert!(err.contains("Command 'two'"), "got: {err}");
+        assert!(err.contains("already bound to 'one'"), "got: {err}");
+    }
+
+    #[test]
+    fn same_hotkey_at_different_levels_is_allowed() {
+        let cm = make_manager(
+            "\
+global:
+- key: g
+  url: https://x
+  hotkey: alt+a
+clients:
+- name: c
+  commands:
+  - key: c
+    url: https://y
+    hotkey: alt+a
+",
+        );
+        assert_eq!(cm.get_clients().len(), 1);
+    }
+
+    #[test]
+    fn hotkey_merges_through_include_by_key() {
+        let base = write_temp_config("global:\n- key: assist\n  url: https://x\n  hotkey: alt+a\n");
+        let cm = make_manager(&format!(
+            "include: {}\nglobal:\n- key: assist\n  pinned: true\n",
+            base.display()
+        ));
+        assert_eq!(
+            cm.get_global_commands().unwrap()[0].hotkey.as_deref(),
+            Some("alt+a")
+        );
+    }
+
+    #[test]
+    fn hotkey_clash_introduced_by_include_is_rejected() {
+        let base = write_temp_config("global:\n- key: one\n  url: https://x\n  hotkey: alt+a\n");
+        let err = load_error(&format!(
+            "include: {}\nglobal:\n- key: two\n  url: https://y\n  hotkey: alt+a\n",
+            base.display()
+        ));
+        assert!(err.contains("already bound to 'one'"), "got: {err}");
     }
 }
