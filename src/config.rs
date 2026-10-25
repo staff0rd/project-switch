@@ -59,6 +59,25 @@ pub struct WebserverEntryConfig {
     pub settings: WebserverConfig,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PaprikaConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+fn null_as_empty_section<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Some(
+        Option::<T>::deserialize(deserializer)?.unwrap_or_default(),
+    ))
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserOption {
@@ -172,6 +191,12 @@ pub struct Config {
     pub webservers: Option<Vec<WebserverEntryConfig>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitor: Option<u32>,
+    #[serde(
+        default,
+        deserialize_with = "null_as_empty_section",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub paprika: Option<PaprikaConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clients: Vec<Client>,
 }
@@ -271,7 +296,21 @@ fn merge_configs(base: Config, overlay: Config) -> Config {
             base.webservers
         },
         monitor: overlay.monitor.or(base.monitor),
+        paprika: merge_paprika(base.paprika, overlay.paprika),
         clients: merge_client_lists(base.clients, overlay.clients),
+    }
+}
+
+fn merge_paprika(
+    base: Option<PaprikaConfig>,
+    overlay: Option<PaprikaConfig>,
+) -> Option<PaprikaConfig> {
+    match (base, overlay) {
+        (Some(b), Some(o)) => Some(PaprikaConfig {
+            image: o.image.or(b.image),
+            token: o.token.or(b.token),
+        }),
+        (b, o) => o.or(b),
     }
 }
 
@@ -621,20 +660,56 @@ impl ConfigManager {
                 webserver: self.config.webserver.clone(),
                 webservers: self.config.webservers.clone(),
                 monitor: self.config.monitor,
+                paprika: self.config.paprika.clone(),
                 clients: self.local_clients.clone(),
             };
             serde_yaml::to_value(&local_config).context("Failed to serialize config")?
         };
 
-        let yaml = serde_yaml::to_string(&yaml_value).context("Failed to serialize config")?;
+        self.write_yaml(&yaml_value)
+    }
+
+    fn write_yaml(&self, yaml_value: &Value) -> Result<()> {
+        let yaml = serde_yaml::to_string(yaml_value).context("Failed to serialize config")?;
 
         fs::write(&self.config_path, yaml).with_context(|| {
             format!(
                 "Failed to write config file: {}",
                 self.config_path.display()
             )
-        })?;
+        })
+    }
 
+    pub fn get_paprika_config(&self) -> Option<&PaprikaConfig> {
+        self.config.paprika.as_ref()
+    }
+
+    pub fn set_local_paprika_token(&mut self, token: &str) -> Result<()> {
+        let raw = self
+            .raw_yaml
+            .get_or_insert_with(|| Value::Mapping(serde_yaml::Mapping::new()));
+        let Value::Mapping(map) = raw else {
+            anyhow::bail!("Config file is not a YAML mapping");
+        };
+        let section = map
+            .entry(Value::String("paprika".to_string()))
+            .or_insert(Value::Null);
+        if !section.is_mapping() {
+            *section = Value::Mapping(serde_yaml::Mapping::new());
+        }
+        if let Value::Mapping(section) = section {
+            section.insert(
+                Value::String("token".to_string()),
+                Value::String(token.to_string()),
+            );
+        }
+        let raw = raw.clone();
+        self.write_yaml(&raw)?;
+
+        self.config
+            .paprika
+            .get_or_insert_with(Default::default)
+            .token = Some(token.to_string());
         Ok(())
     }
 
@@ -1185,6 +1260,51 @@ clients:
     }
 
     #[test]
+    fn paprika_section_is_opt_in() {
+        assert_eq!(make_manager("clients: []\n").get_paprika_config(), None);
+        assert_eq!(
+            make_manager("paprika:\n").get_paprika_config(),
+            Some(&PaprikaConfig::default())
+        );
+        let cm = make_manager("paprika:\n  image: my/paprika\n  token: abc\n");
+        assert_eq!(
+            cm.get_paprika_config(),
+            Some(&PaprikaConfig {
+                image: Some("my/paprika".to_string()),
+                token: Some("abc".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn unknown_paprika_field_is_rejected() {
+        let err = load_error("paprika:\n  password: x\n");
+        assert!(err.contains("unknown field `password`"), "got: {err}");
+    }
+
+    #[test]
+    fn local_paprika_fields_win_over_included() {
+        let base = write_temp_config("paprika:\n  image: shared/paprika\n  token: old\n");
+        let cm = make_manager(&format!(
+            "include: {}\npaprika:\n  token: new\n",
+            base.display()
+        ));
+        assert_eq!(
+            cm.get_paprika_config(),
+            Some(&PaprikaConfig {
+                image: Some("shared/paprika".to_string()),
+                token: Some("new".to_string()),
+            })
+        );
+
+        let cm = make_manager(&format!("include: {}\n", base.display()));
+        assert_eq!(
+            cm.get_paprika_config().and_then(|p| p.token.as_deref()),
+            Some("old")
+        );
+    }
+
+    #[test]
     fn hotkey_clash_introduced_by_include_is_rejected() {
         let base = write_temp_config("global:\n- key: one\n  url: https://x\n  hotkey: alt+a\n");
         let err = load_error(&format!(
@@ -1192,5 +1312,39 @@ clients:
             base.display()
         ));
         assert!(err.contains("already bound to 'one'"), "got: {err}");
+    }
+
+    #[test]
+    fn paprika_token_is_saved_to_local_config_only() {
+        let base_contents = "paprika:\n  image: shared/paprika\n";
+        let base = write_temp_config(base_contents);
+        let mut cm = make_manager(&format!(
+            "include: {}\npaprika:\n  image: local/paprika\n",
+            base.display()
+        ));
+        cm.set_local_paprika_token("tok").unwrap();
+
+        assert_eq!(fs::read_to_string(&base).unwrap(), base_contents);
+        let written: Config =
+            serde_yaml::from_str(&fs::read_to_string(&cm.config_path).unwrap()).unwrap();
+        assert_eq!(
+            written.paprika,
+            Some(PaprikaConfig {
+                image: Some("local/paprika".to_string()),
+                token: Some("tok".to_string()),
+            })
+        );
+        assert_eq!(
+            cm.get_paprika_config().and_then(|p| p.token.as_deref()),
+            Some("tok")
+        );
+    }
+
+    #[test]
+    fn paprika_token_creates_section_when_absent() {
+        let mut cm = make_manager("clients: []\n");
+        cm.set_local_paprika_token("tok").unwrap();
+        let written = fs::read_to_string(&cm.config_path).unwrap();
+        assert!(written.contains("paprika:\n  token: tok"), "got: {written}");
     }
 }

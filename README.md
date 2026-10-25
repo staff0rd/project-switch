@@ -35,6 +35,9 @@ project-switch current
 
 # List openable items for the current client (interactive)
 project-switch list
+
+# Manage the Paprika grocery list (see "Paprika grocery list" below)
+project-switch grocery list
 ```
 
 ### Tab completion
@@ -109,6 +112,7 @@ clients:
 - **`projects`** (nested under a client): matched by `name`, merged field-by-field; a project cannot itself contain a `projects` field
 - **`commands`** (project-level, client-level, and `global`): matched by `key`, then merged field-by-field
 - **`shortcuts`**: local replaces entirely (machine-specific)
+- **`paprika`**: merged field-by-field (local `image` / `token` win)
 - Missing include file: warning printed, continues with local config only
 - Only one level of include is supported (nested includes are ignored)
 - The tool never writes to the included file
@@ -185,6 +189,46 @@ global:
 - Only commands in the active effective set (project > client > global) are bound. When levels share a combo, the more specific level wins.
 - An invalid `hotkey`, or two commands in the same command list sharing a combo, fails config load. In an `include` merge, `hotkey` merges by command key like other command fields.
 - Not supported in terminal `list`.
+
+## Paprika grocery list
+
+`project-switch grocery` manages a [Paprika](https://www.paprikaapp.com/) grocery list by running the [`ghcr.io/staff0rd/paprika`](https://github.com/staff0rd/paprika) Docker image, so Docker must be installed and running. It's opt-in via a `paprika:` section in `~/.project-switch.yml`:
+
+```yaml
+paprika:
+  image: ghcr.io/staff0rd/paprika   # optional; this is the default
+  token: ...                        # written by `project-switch grocery auth`
+```
+
+A bare `paprika:` is enough to enable it before you've logged in.
+
+```bash
+# Log in (prompts for your Paprika email and password inside the container)
+project-switch grocery auth
+
+# Show unpurchased items on every grocery list
+project-switch grocery list
+
+# Add to / remove from the default list, or a named one (case-insensitive)
+project-switch grocery add "Milk"
+project-switch grocery remove "Nails" --list "Hardware"
+```
+
+- `auth` runs the container with `-it` and saves the token as `paprika.token` in `~/.project-switch.yml`, never in an included file. Run it from a terminal.
+- Every other command writes the token into a fresh temp dir, bind-mounts it into the container at `/home/paprika/.paprika` and deletes the dir afterwards. No Docker volume is created.
+- A missing token, or one Paprika rejects, fails with a prompt to run `project-switch grocery auth`.
+- Other container errors (Docker not running, an unknown list or item) are printed as-is.
+
+With `paprika:` configured, the launcher (`project-switch list` and the GUI) gets a built-in `grocery` item. `grocery milk` adds Milk to the default list; in the GUI it runs in the background and failures show in the error banner. In `project-switch list`, Enter on `grocery` alone shows the default list's items and removes the one you pick.
+
+In the GUI, Enter on `grocery` alone opens an in-window picker of the default list (it shows a loading state while the container runs):
+
+- Type to filter the items; Enter removes the highlighted one.
+- If the filter matches nothing, the picker offers `+ Add "<filter>"`; Enter adds it.
+- The list refreshes after each change. Esc returns to the item list.
+- Errors, including a missing or rejected token, show in the error banner.
+
+Only the default list is available in the launcher; use `project-switch grocery ... --list <name>` for others.
 
 ## Webserver
 

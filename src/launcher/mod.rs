@@ -2,6 +2,7 @@
 //! Used by both the CLI `list` command and the windowed GUI launcher.
 
 pub mod browser_picker;
+pub mod grocery_picker;
 pub mod key_combo;
 pub mod picker;
 
@@ -14,6 +15,7 @@ pub enum ListItemKind {
     /// A command that re-invokes this program's own interactive `switch`
     /// prompt; handled by the launcher itself rather than spawned.
     Switch,
+    Grocery,
     Shortcut {
         path: String,
     },

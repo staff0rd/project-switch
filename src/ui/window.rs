@@ -3,6 +3,7 @@
 use crate::commands::list::{execute_action, BrowserPick};
 use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
+use crate::launcher::grocery_picker::GroceryRow;
 use crate::launcher::key_combo::KeyCombo;
 use crate::launcher::picker::{PickerEntry, PickerOutcome};
 use crate::launcher::{get_path_entries, CalcResult, ListItem, ListItemKind};
@@ -72,6 +73,7 @@ fn activate_item(state: &mut WindowState, prev_input: &mut String, item: ListIte
             Ok(None) => execute_and_hide(state, &action),
             Err(e) => state.set_error(format!("{e:#}")),
         },
+        ListItemKind::Grocery => activate_grocery(state, prev_input, &item.key, &action),
         ListItemKind::Shortcut { .. } => execute_and_hide(state, &action),
     }
 }
@@ -112,6 +114,73 @@ fn consume_hotkey_and_its_text(ui: &egui::Ui, state: &WindowState) -> Option<Lis
             .retain(|event| !matches!(event, egui::Event::Text(_)));
         Some(item)
     })
+}
+
+fn activate_grocery(
+    state: &mut WindowState,
+    prev_input: &mut String,
+    key: &str,
+    action_input: &str,
+) {
+    let args = action_input
+        .split_once(char::is_whitespace)
+        .map(|(_, rest)| rest);
+    crate::history::record(key).ok();
+    let Some(command) = crate::commands::grocery::launcher_add(args) else {
+        state.open_grocery_picker();
+        *prev_input = state.input.clone();
+        state.spawn_grocery(|| crate::commands::grocery::apply_and_list(None));
+        return;
+    };
+    state.hide();
+    state
+        .spawn_action(move || crate::commands::grocery::run_with_loaded_config(&command).map(drop));
+}
+
+fn render_grocery_picker(
+    ui: &mut egui::Ui,
+    state: &mut WindowState,
+    prev_input: &mut String,
+    key_down: bool,
+    key_up: bool,
+    key_enter: bool,
+) {
+    if state.grocery_picker.as_ref().is_some_and(|p| p.loading) {
+        empty_list_label(ui, "Loading grocery list...");
+        return;
+    }
+    let rows = state.grocery_rows();
+    let selected = navigate_rows(state, rows.len(), key_down, key_up);
+
+    let activate = key_enter || {
+        let labels = rows
+            .iter()
+            .map(|row| match row {
+                GroceryRow::Item(item) => egui::RichText::new(format!("   {item}")),
+                GroceryRow::Add(item) => {
+                    egui::RichText::new(format!("+  Add \"{item}\"")).color(CURRENT_COLOR)
+                }
+            })
+            .collect();
+        let clicked = render_rows(
+            ui,
+            labels,
+            selected,
+            key_down || key_up,
+            "The default grocery list is empty: type an item to add it",
+        );
+        if let Some(i) = clicked {
+            state.selected = i;
+        }
+        clicked.is_some()
+    };
+    if !activate {
+        return;
+    }
+    if let Some(command) = state.grocery_command() {
+        state.spawn_grocery(move || crate::commands::grocery::apply_and_list(Some(&command)));
+        *prev_input = state.input.clone();
+    }
 }
 
 fn launch_with_browser(state: &mut WindowState, prev_input: &mut String, option: BrowserOption) {
@@ -286,10 +355,11 @@ pub fn render_launcher(
         if response.dragged() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
-        let title = match (&state.picker, &state.browser_picker) {
-            (Some(picker), _) => picker.title(),
-            (None, Some(picker)) => picker.title(),
-            (None, None) => project_name.to_string(),
+        let title = match (&state.picker, &state.browser_picker, &state.grocery_picker) {
+            (Some(picker), _, _) => picker.title(),
+            (None, Some(picker), _) => picker.title(),
+            (None, None, Some(picker)) => picker.title(),
+            (None, None, None) => project_name.to_string(),
         };
         ui.painter().text(
             title_rect.left_center() + egui::vec2(4.0, 0.0),
@@ -346,7 +416,7 @@ pub fn render_launcher(
                     state.close_picker();
                 }
                 *prev_input = state.input.clone();
-            } else if state.browser_picker.is_some() {
+            } else if state.browser_picker.is_some() || state.grocery_picker.is_some() {
                 state.close_picker();
                 *prev_input = state.input.clone();
             } else {
@@ -367,6 +437,10 @@ pub fn render_launcher(
         }
         if state.browser_picker.is_some() {
             render_browser_picker(ui, state, prev_input, key_down, key_up, key_enter);
+            return;
+        }
+        if state.grocery_picker.is_some() {
+            render_grocery_picker(ui, state, prev_input, key_down, key_up, key_enter);
             return;
         }
 
@@ -515,7 +589,9 @@ pub fn render_launcher(
 
                         let label = match entry {
                             FilteredEntry::Item(item) => match &item.kind {
-                                ListItemKind::Command | ListItemKind::Switch => {
+                                ListItemKind::Command
+                                | ListItemKind::Switch
+                                | ListItemKind::Grocery => {
                                     let text = item.row_text();
                                     if is_selected {
                                         egui::RichText::new(text).strong()

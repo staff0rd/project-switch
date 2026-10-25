@@ -29,10 +29,11 @@ fn get_file_suggestions(input: &str) -> Vec<String> {
 }
 
 const APP_PREFIX: &str = "[app] ";
+const GROCERY_KEY: &str = "grocery";
 
 fn format_suggestion(item: &ListItem) -> String {
     match &item.kind {
-        ListItemKind::Command | ListItemKind::Switch => {
+        ListItemKind::Command | ListItemKind::Switch | ListItemKind::Grocery => {
             let truncated = if item.display_detail.len() > 60 {
                 format!("{}...", &item.display_detail[..57])
             } else {
@@ -209,7 +210,16 @@ fn load_command_items(config_manager: &ConfigManager) -> (Vec<ProjectCommand>, V
         hotkey: None,
     };
 
+    let builtin_grocery = config_manager.get_paprika_config().map(|_| ListItem {
+        key: GROCERY_KEY.to_string(),
+        display_detail: "Paprika grocery list".to_string(),
+        kind: ListItemKind::Grocery,
+        pinned: false,
+        hotkey: None,
+    });
+
     let all_items: Vec<ListItem> = std::iter::once(builtin_switch)
+        .chain(builtin_grocery)
         .chain(all_commands.iter().map(|cmd| {
             ListItem {
                 key: cmd.key.clone(),
@@ -346,6 +356,12 @@ pub fn execute_action(input: &str, browser_pick: BrowserPick) -> Result<()> {
                 // process just to re-enter this binary.
                 ListItemKind::Switch => {
                     crate::commands::switch::execute()?;
+                }
+                ListItemKind::Grocery => {
+                    crate::commands::grocery::execute_from_launcher(
+                        &config_manager,
+                        args.as_deref(),
+                    )?;
                 }
                 ListItemKind::Command => {
                     let selected_command = sorted_commands
@@ -644,6 +660,43 @@ global:
         let (_, items) = load_items(&cm);
         let item = items.iter().find(|item| item.key == "reswitch").unwrap();
         assert_eq!(item.kind, ListItemKind::Command);
+    }
+
+    fn has_grocery(yaml: &str) -> bool {
+        let (_, items) = load_items(&make_manager(yaml));
+        items
+            .iter()
+            .any(|item| item.key == GROCERY_KEY && item.kind == ListItemKind::Grocery)
+    }
+
+    #[test]
+    fn grocery_item_present_only_when_paprika_configured() {
+        assert!(!has_grocery("shortcuts:\n  enabled: false\n"));
+        assert!(has_grocery("shortcuts:\n  enabled: false\npaprika:\n"));
+        assert!(has_grocery(
+            "shortcuts:\n  enabled: false\npaprika:\n  image: my/paprika\n"
+        ));
+    }
+
+    #[test]
+    fn grocery_with_item_dispatches_add() {
+        let (_, items) = load_items(&make_manager("shortcuts:\n  enabled: false\npaprika:\n"));
+        let (item, args) = resolve_item(&items, "grocery oat milk").unwrap();
+        assert_eq!(item.kind, ListItemKind::Grocery);
+        assert_eq!(
+            crate::commands::grocery::launcher_add(args.as_deref()),
+            Some(crate::paprika::GroceryCommand::Add {
+                item: "oat milk".to_string(),
+                list: None,
+            })
+        );
+
+        let (item, args) = resolve_item(&items, "grocery").unwrap();
+        assert_eq!(item.kind, ListItemKind::Grocery);
+        assert_eq!(
+            crate::commands::grocery::launcher_add(args.as_deref()),
+            None
+        );
     }
 
     #[test]

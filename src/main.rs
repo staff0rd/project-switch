@@ -5,6 +5,7 @@ mod history;
 mod hotkey;
 mod icon;
 mod launcher;
+mod paprika;
 mod ui;
 mod utils;
 
@@ -55,6 +56,11 @@ enum Commands {
         #[arg(long)]
         monitor: Option<u32>,
     },
+    #[command(about = "Manage the Paprika grocery list")]
+    Grocery {
+        #[command(subcommand)]
+        command: paprika::GroceryCommand,
+    },
 }
 
 fn main() {
@@ -84,6 +90,7 @@ fn main() {
                 commands::list::execute(debug)
             }
         }
+        Some(Commands::Grocery { command }) => commands::grocery::execute(&command),
     };
 
     if let Err(e) = result {

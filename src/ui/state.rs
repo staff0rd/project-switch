@@ -5,11 +5,13 @@
 
 use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
+use crate::launcher::grocery_picker::{GroceryPicker, GroceryRow};
 use crate::launcher::key_combo::KeyCombo;
 use crate::launcher::picker::PickerState;
 use crate::launcher::{
     eval_calc_input, filter_items, is_file_path, order_recent_keys, CalcResult, ListItem,
 };
+use crate::paprika::GroceryCommand;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 /// The current input mode, derived from the input text.
@@ -65,16 +67,20 @@ pub struct WindowState {
     /// Active client/project picker; `Some` puts the launcher in picker mode.
     pub picker: Option<PickerState>,
     pub browser_picker: Option<BrowserPicker>,
+    pub grocery_picker: Option<GroceryPicker>,
     /// Message shown in the launcher's error banner.
     pub error: Option<String>,
     action_tx: Sender<String>,
     action_rx: Receiver<String>,
+    grocery_tx: Sender<Result<Vec<String>, String>>,
+    grocery_rx: Receiver<Result<Vec<String>, String>>,
     pending_actions: usize,
 }
 
 impl WindowState {
     pub fn new(items: Vec<ListItem>, recent_keys: Vec<String>) -> Self {
         let (action_tx, action_rx) = channel();
+        let (grocery_tx, grocery_rx) = channel();
         let mut s = Self {
             input: String::new(),
             selected: 0,
@@ -86,9 +92,12 @@ impl WindowState {
             recent_keys,
             picker: None,
             browser_picker: None,
+            grocery_picker: None,
             error: None,
             action_tx,
             action_rx,
+            grocery_tx,
+            grocery_rx,
             pending_actions: 0,
         };
         s.update_filtered_count();
@@ -104,6 +113,7 @@ impl WindowState {
         self.visible_frames = 0;
         self.picker = None;
         self.browser_picker = None;
+        self.grocery_picker = None;
         self.error = None;
         self.update_filtered_count();
     }
@@ -183,6 +193,58 @@ impl WindowState {
                 self.set_error(message);
             }
         }
+        while let Ok(result) = self.grocery_rx.try_recv() {
+            self.pending_actions = self.pending_actions.saturating_sub(1);
+            match result {
+                Ok(items) => {
+                    if let Some(picker) = self.grocery_picker.as_mut() {
+                        picker.set_items(items);
+                    }
+                }
+                Err(message) => {
+                    if let Some(picker) = self.grocery_picker.as_mut() {
+                        picker.loading = false;
+                    }
+                    self.set_error(message);
+                }
+            }
+        }
+    }
+
+    pub fn open_grocery_picker(&mut self) {
+        self.error = None;
+        self.grocery_picker = Some(GroceryPicker::loading());
+        self.input.clear();
+        self.selected = 0;
+    }
+
+    pub fn spawn_grocery<F>(&mut self, action: F)
+    where
+        F: FnOnce() -> anyhow::Result<Vec<String>> + Send + 'static,
+    {
+        if let Some(picker) = self.grocery_picker.as_mut() {
+            picker.loading = true;
+        }
+        self.input.clear();
+        self.selected = 0;
+        let tx = self.grocery_tx.clone();
+        self.pending_actions += 1;
+        std::thread::spawn(move || {
+            let _ = tx.send(action().map_err(|e| format!("{e:#}")));
+        });
+    }
+
+    pub fn grocery_rows(&self) -> Vec<GroceryRow> {
+        self.grocery_picker
+            .as_ref()
+            .map(|picker| picker.rows(&self.input))
+            .unwrap_or_default()
+    }
+
+    pub fn grocery_command(&self) -> Option<GroceryCommand> {
+        self.grocery_picker
+            .as_ref()?
+            .command(&self.input, self.selected)
     }
 
     /// Show `message` in the error banner, making the window visible again if
@@ -223,6 +285,7 @@ impl WindowState {
     pub fn close_picker(&mut self) {
         self.picker = None;
         self.browser_picker = None;
+        self.grocery_picker = None;
         self.input.clear();
         self.selected = 0;
         self.update_filtered_count();
@@ -1227,6 +1290,113 @@ mod tests {
         let mut state = state_in_browser_picker();
         state.show();
         assert!(state.browser_picker.is_none());
+    }
+
+    fn grocery_items() -> Vec<String> {
+        vec![
+            "Milk".to_string(),
+            "Oat milk".to_string(),
+            "Eggs".to_string(),
+        ]
+    }
+
+    fn settle(state: &mut WindowState) {
+        while state.has_pending_actions() {
+            state.poll_actions();
+        }
+    }
+
+    fn state_in_grocery_picker() -> WindowState {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.set_input("grocery".to_string());
+        state.open_grocery_picker();
+        state.spawn_grocery(|| Ok(grocery_items()));
+        settle(&mut state);
+        state
+    }
+
+    #[test]
+    fn grocery_picker_loads_items_asynchronously() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.open_grocery_picker();
+        assert!(state.grocery_picker.as_ref().unwrap().loading);
+        assert_eq!(state.grocery_command(), None);
+        state.spawn_grocery(|| Ok(grocery_items()));
+        settle(&mut state);
+        assert!(!state.grocery_picker.as_ref().unwrap().loading);
+        assert_eq!(state.grocery_rows().len(), 3);
+    }
+
+    #[test]
+    fn enter_on_highlighted_grocery_item_removes_it() {
+        let mut state = state_in_grocery_picker();
+        state.set_input("milk".to_string());
+        state.navigate_down_bounded(state.grocery_rows().len());
+        assert_eq!(
+            state.grocery_command(),
+            Some(GroceryCommand::Remove {
+                item: "Oat milk".to_string(),
+                list: None
+            })
+        );
+    }
+
+    #[test]
+    fn enter_on_unmatched_grocery_filter_adds_it() {
+        let mut state = state_in_grocery_picker();
+        state.set_input("Bread".to_string());
+        assert_eq!(state.grocery_rows(), [GroceryRow::Add("Bread".to_string())]);
+        assert_eq!(
+            state.grocery_command(),
+            Some(GroceryCommand::Add {
+                item: "Bread".to_string(),
+                list: None
+            })
+        );
+    }
+
+    #[test]
+    fn grocery_change_clears_filter_and_refreshes_list() {
+        let mut state = state_in_grocery_picker();
+        state.set_input("eggs".to_string());
+        state.spawn_grocery(|| Ok(vec!["Milk".to_string()]));
+        assert_eq!(state.input, "");
+        assert!(state.grocery_picker.as_ref().unwrap().loading);
+        settle(&mut state);
+        assert_eq!(state.grocery_rows(), [GroceryRow::Item("Milk".to_string())]);
+    }
+
+    #[test]
+    fn failed_grocery_call_shows_error_and_keeps_picker() {
+        let mut state = state_in_grocery_picker();
+        state.spawn_grocery(|| anyhow::bail!(crate::paprika::AUTH_HINT));
+        settle(&mut state);
+        assert_eq!(state.error.as_deref(), Some(crate::paprika::AUTH_HINT));
+        let picker = state.grocery_picker.as_ref().unwrap();
+        assert!(!picker.loading);
+        assert_eq!(state.grocery_rows().len(), 3);
+    }
+
+    #[test]
+    fn close_picker_leaves_grocery_picker_for_item_list() {
+        let mut state = state_in_grocery_picker();
+        state.set_input("milk".to_string());
+        state.close_picker();
+        assert!(state.grocery_picker.is_none());
+        assert_eq!(state.input, "");
+        assert_eq!(state.filtered_count(), 3);
+    }
+
+    #[test]
+    fn grocery_result_after_close_is_ignored() {
+        let mut state = state_in_grocery_picker();
+        state.spawn_grocery(|| Ok(grocery_items()));
+        state.close_picker();
+        settle(&mut state);
+        assert!(state.grocery_picker.is_none());
+        assert!(state.error.is_none());
     }
 
     // --- Error surfacing (backlog a935) ---
