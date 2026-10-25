@@ -8,7 +8,9 @@ use std::process::{Command, Stdio};
 pub const DEFAULT_IMAGE: &str = "ghcr.io/staff0rd/paprika";
 pub const AUTH_HINT: &str =
     "Paprika needs a login: run `project-switch grocery auth` in a terminal";
-const CONTAINER_TOKEN_DIR: &str = "/home/paprika/.paprika";
+const CONTAINER_HOME: &str = "/home/paprika";
+const HOST_USER_HOME: &str = "/tmp/paprika";
+const HOST_USER_WORKDIR: &str = "/tmp";
 const TOKEN_FILE: &str = "token";
 const PROMPT_WITHOUT_TTY_ERROR: &str = "credentials not provided";
 const DEFAULT_LIST_MARKER: &str = " (default)";
@@ -64,17 +66,23 @@ fn docker_args(
     if *command == GroceryCommand::Auth {
         args.push("-it".to_string());
     }
-    if let Some(user) = user {
-        args.extend([
-            "--user".to_string(),
-            user.to_string(),
-            "-e".to_string(),
-            "HOME=/home/paprika".to_string(),
-        ]);
-    }
+    let home = match user {
+        Some(user) => {
+            args.extend([
+                "--user".to_string(),
+                user.to_string(),
+                "-e".to_string(),
+                format!("HOME={HOST_USER_HOME}"),
+                "-w".to_string(),
+                HOST_USER_WORKDIR.to_string(),
+            ]);
+            HOST_USER_HOME
+        }
+        None => CONTAINER_HOME,
+    };
     args.push("--mount".to_string());
     args.push(format!(
-        "type=bind,src={},dst={CONTAINER_TOKEN_DIR}",
+        "type=bind,src={},dst={home}/.paprika",
         token_dir.display()
     ));
     args.push(image.to_string());
@@ -277,10 +285,19 @@ mod tests {
     }
 
     #[test]
-    fn host_user_runs_container_with_mounted_home() {
+    fn host_user_gets_home_and_cwd_outside_the_images_private_home() {
         assert_eq!(
-            args(&GroceryCommand::List, Some("1000:1000"))[2..6],
-            ["--user", "1000:1000", "-e", "HOME=/home/paprika"]
+            args(&GroceryCommand::List, Some("1000:1000"))[2..10],
+            [
+                "--user",
+                "1000:1000",
+                "-e",
+                "HOME=/tmp/paprika",
+                "-w",
+                "/tmp",
+                "--mount",
+                "type=bind,src=/tmp/tok,dst=/tmp/paprika/.paprika"
+            ]
         );
     }
 

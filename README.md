@@ -215,7 +215,7 @@ project-switch grocery remove "Nails" --list "Hardware"
 ```
 
 - `auth` runs the container with `-it` and saves the token as `paprika.token` in `~/.project-switch.yml`, never in an included file. Run it from a terminal.
-- Every other command writes the token into a fresh temp dir, bind-mounts it into the container at `/home/paprika/.paprika` and deletes the dir afterwards. No Docker volume is created.
+- Every other command writes the token into a fresh temp dir, bind-mounts it into the container as `~/.paprika` and deletes the dir afterwards. On macOS/Linux the container runs as your uid with `HOME=/tmp/paprika`, because the image's own home is private to its `paprika` user. No Docker volume is created.
 - A missing token, or one Paprika rejects, fails with a prompt to run `project-switch grocery auth`.
 - Other container errors (Docker not running, an unknown list or item) are printed as-is.
 
