@@ -12,30 +12,40 @@ case "$(uname)" in
     *)      export BUILD_TARGET=linux ;;
 esac
 
-# On macOS, kill the running hotkey service before rebuilding
-if [ "$BUILD_TARGET" = "macos" ]; then
-    pkill -x project-switch-hotkey || true
-fi
+STAGED_DIR="bin/.staging/$BUILD_TARGET"
+BIN_DIR="bin/$BUILD_TARGET"
 
 echo "Building for $BUILD_TARGET..."
-echo "Removing bin folder..."
-rm -rf bin
-
 docker compose build build
 docker compose run --rm build
-cp -R bin/.staging/. bin/
-rm -rf bin/.staging
+
+if [ -z "$(ls -A "$STAGED_DIR" 2>/dev/null)" ]; then
+    echo "Build produced no files in $STAGED_DIR" >&2
+    exit 1
+fi
 
 echo "Build completed successfully!"
 
-# On macOS, re-sign and restart the hotkey service. The cross-compiled
-# (zigbuild) binaries carry a linker-signed ad-hoc signature that macOS's
-# code-signing monitor rejects at launch (SIGKILL, crash bug_type 309), so
-# re-sign them ad-hoc with the native codesign before running.
+# The hotkey runs straight from bin/macos, so it must be stopped before its binary is replaced
+if [ "$BUILD_TARGET" = "macos" ]; then
+    echo "Stopping project-switch-hotkey..."
+    pkill -x project-switch-hotkey || true
+    for _ in $(seq 1 50); do
+        pgrep -x project-switch-hotkey >/dev/null || break
+        sleep 0.1
+    done
+fi
+
+echo "Updating $BIN_DIR..."
+rm -rf "$BIN_DIR"
+mv "$STAGED_DIR" "$BIN_DIR"
+rm -rf bin/.staging
+
+# Zigbuild's linker-signed ad-hoc signature is rejected at launch (SIGKILL, bug_type 309), so re-sign natively
 if [ "$BUILD_TARGET" = "macos" ]; then
     echo "Ad-hoc signing macOS binaries..."
-    codesign --force --sign - bin/macos/project-switch
-    codesign --force --sign - bin/macos/project-switch-hotkey
+    codesign --force --sign - "$BIN_DIR/project-switch"
+    codesign --force --sign - "$BIN_DIR/project-switch-hotkey"
     echo "Restarting hotkey service..."
-    bash bin/macos/start-hotkey.sh
+    bash "$BIN_DIR/start-hotkey.sh"
 fi

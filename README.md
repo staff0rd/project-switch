@@ -5,11 +5,15 @@ Fast CLI tool to manage and switch between clients. Written in Rust for blazing 
 ## Build
 
 ```bash
-docker-compose up build
+./build.sh      # macOS / Linux
+./build.ps1     # Windows (PowerShell)
 ```
 
-This creates binaries for both platforms:
-- `bin/windows/project-switch.exe` 
+The Docker build writes to `bin/.staging`. Only after it succeeds are running `project-switch`/`project-switch-hotkey` processes stopped, the staged binaries moved into `bin/<target>`, and the hotkey restarted (re-signed ad-hoc first on macOS). A failed build leaves running processes and existing binaries untouched.
+
+Outputs:
+- `bin/windows/project-switch.exe`, `project-switch-hotkey.exe`, `WebView2Loader.dll`
+- `bin/macos/project-switch`, `project-switch-hotkey`, `start-hotkey.sh`
 - `bin/linux/project-switch`
 
 ## Install
