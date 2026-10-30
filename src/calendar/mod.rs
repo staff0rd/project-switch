@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod colours;
 pub mod google;
 pub mod oauth;
@@ -6,6 +7,7 @@ use crate::config::{CalendarConfig, ConfigManager};
 use anyhow::Result;
 use chrono::{DateTime, Local, NaiveDate};
 use clap::Subcommand;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Subcommand)]
 pub enum CalendarCommand {
@@ -16,13 +18,13 @@ pub enum CalendarCommand {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct EventColour {
     pub background: [u8; 3],
     pub foreground: [u8; 3],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CalendarEvent {
     pub title: String,
     pub start: DateTime<Local>,
@@ -31,13 +33,13 @@ pub struct CalendarEvent {
     pub colour: EventColour,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct CalendarDay {
     pub events: Vec<CalendarEvent>,
     pub errors: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CalendarContent {
     Loading,
     NotConfigured,

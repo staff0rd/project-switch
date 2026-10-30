@@ -3,6 +3,7 @@
 //! Manages visibility, input, filtering, selection, and transitions
 //! independently of the GUI framework for testability.
 
+use crate::calendar::cache::CalendarCache;
 use crate::calendar::{CalendarContent, CalendarDay};
 use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
@@ -14,7 +15,7 @@ use crate::launcher::{
 };
 use crate::paprika::GroceryCommand;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 
 pub const CALENDAR_FRESH_FOR: Duration = Duration::from_secs(5 * 60);
 
@@ -77,7 +78,7 @@ pub struct WindowState {
     pub calendar_open: bool,
     pub calendar: CalendarContent,
     pub calendar_refreshing: bool,
-    calendar_fetched_at: Option<Instant>,
+    calendar_fetched_at: Option<SystemTime>,
     action_tx: Sender<String>,
     action_rx: Receiver<String>,
     grocery_tx: Sender<Result<Vec<String>, String>>,
@@ -233,7 +234,7 @@ impl WindowState {
             match result {
                 Ok(content) => {
                     self.calendar = content;
-                    self.calendar_fetched_at = Some(Instant::now());
+                    self.calendar_fetched_at = Some(SystemTime::now());
                     self.show_calendar_errors();
                 }
                 Err(message) => {
@@ -289,7 +290,14 @@ impl WindowState {
     }
 
     pub fn calendar_age(&self) -> Option<Duration> {
-        self.calendar_fetched_at.map(|at| at.elapsed())
+        self.calendar_fetched_at?.elapsed().ok()
+    }
+
+    pub fn restore_calendar(&mut self, cache: Option<CalendarCache>) {
+        if let Some(cache) = cache {
+            self.calendar = cache.content;
+            self.calendar_fetched_at = Some(cache.fetched_at);
+        }
     }
 
     pub fn close_calendar(&mut self) {
@@ -1564,7 +1572,7 @@ mod tests {
     }
 
     fn stale_calendar(state: &mut WindowState) {
-        state.calendar_fetched_at = Instant::now().checked_sub(CALENDAR_FRESH_FOR);
+        state.calendar_fetched_at = SystemTime::now().checked_sub(CALENDAR_FRESH_FOR);
     }
 
     fn day_with_errors(errors: &[&str]) -> CalendarContent {
@@ -1621,6 +1629,47 @@ mod tests {
         settle(&mut state);
         reopen_calendar(&mut state, || panic!("fresh cache must not refetch"));
         assert_eq!(state.error.as_deref(), Some("Calendar 'work': boom"));
+    }
+
+    fn cache_fetched(ago: Duration, content: CalendarContent) -> Option<CalendarCache> {
+        Some(CalendarCache {
+            fetched_at: SystemTime::now() - ago,
+            content,
+        })
+    }
+
+    #[test]
+    fn fresh_cache_from_an_earlier_process_shows_without_refetching() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        let cached = day_with_errors(&[]);
+        state.restore_calendar(cache_fetched(Duration::from_secs(120), cached.clone()));
+        state.show();
+        state.toggle_calendar(|| panic!("fresh cache must not refetch"));
+        assert_eq!(state.calendar, cached);
+        assert!(!state.calendar_refreshing);
+        assert!(!state.has_pending_actions());
+        assert_eq!(state.calendar_age().unwrap().as_secs() / 60, 2);
+    }
+
+    #[test]
+    fn stale_cache_from_an_earlier_process_shows_while_refreshing() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        let cached = day_with_errors(&[]);
+        state.restore_calendar(cache_fetched(CALENDAR_FRESH_FOR, cached.clone()));
+        state.show();
+        state.toggle_calendar(|| Ok(day_with_errors(&["Calendar 'work': boom"])));
+        assert_eq!(state.calendar, cached);
+        assert!(state.calendar_refreshing);
+        settle(&mut state);
+        assert_eq!(state.calendar, day_with_errors(&["Calendar 'work': boom"]));
+    }
+
+    #[test]
+    fn missing_cache_leaves_the_calendar_loading() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.restore_calendar(None);
+        assert_eq!(state.calendar, CalendarContent::Loading);
+        assert!(state.calendar_age().is_none());
     }
 
     #[test]

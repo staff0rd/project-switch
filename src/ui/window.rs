@@ -84,7 +84,11 @@ fn activate_item(state: &mut WindowState, prev_input: &mut String, item: ListIte
 }
 
 fn toggle_calendar(state: &mut WindowState) {
-    state.toggle_calendar(crate::calendar::load_today);
+    state.toggle_calendar(|| {
+        let content = crate::calendar::load_today()?;
+        crate::calendar::cache::save(&content);
+        Ok(content)
+    });
 }
 
 fn fit_window_to_calendar(ctx: &egui::Context, calendar_open: bool) {

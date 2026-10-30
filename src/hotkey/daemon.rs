@@ -256,7 +256,8 @@ pub fn run() -> Result<()> {
     let (tray, menu_ids) = create_tray(shortcuts_enabled)?;
 
     let recent_keys = crate::history::load();
-    let state = WindowState::new(items, recent_keys);
+    let mut state = WindowState::new(items, recent_keys);
+    state.restore_calendar(crate::calendar::cache::load());
 
     eframe::run_native(
         "project-switch",

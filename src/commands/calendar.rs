@@ -20,6 +20,7 @@ fn auth(label: &str) -> Result<()> {
     let client = calendar::client(&config).context(SETUP_HINT)?;
     let token = calendar::oauth::authorize(&client, label)?;
     config_manager.set_local_calendar_token(label, &token)?;
+    calendar::cache::clear();
     println!(
         "{}",
         format!("Saved the Google Calendar login for '{label}' to ~/.project-switch.yml").green()

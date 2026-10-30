@@ -496,6 +496,7 @@ pub fn execute_gui(monitor: Option<u32>) -> Result<()> {
 
     let recent_keys = crate::history::load();
     let mut state = crate::ui::WindowState::new(command_items, recent_keys);
+    state.restore_calendar(crate::calendar::cache::load());
     state.show();
 
     eframe::run_native(
