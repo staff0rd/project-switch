@@ -754,7 +754,7 @@ pub fn execute(
     url: &str,
     monitor: Option<u32>,
     title: Option<&str>,
-    _maximized: bool,
+    maximized: bool,
 ) -> Result<()> {
     use tao::event::{Event, StartCause, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoopBuilder};
@@ -771,6 +771,9 @@ pub fn execute(
         builder = builder.with_position(pos);
     }
     let window = builder.build(&event_loop)?;
+    if maximized {
+        window.set_maximized(true);
+    }
 
     let is_external = external_predicate(url);
     let nav_is_external = is_external.clone();
