@@ -210,6 +210,9 @@ fn load_geometry() -> Option<SavedGeometry> {
 
 #[cfg(any(windows, target_os = "macos"))]
 fn save_geometry(window: &tao::window::Window) {
+    if window.is_maximized() {
+        return;
+    }
     let Some(path) = geometry_path() else { return };
     let Ok(pos) = window.outer_position() else {
         return;
@@ -385,6 +388,7 @@ fn webview_command(
     url: &str,
     monitor: Option<u32>,
     title: Option<&str>,
+    maximized: bool,
 ) -> Result<std::process::Command> {
     let exe = std::env::current_exe().context("Unable to determine current executable path")?;
     let mut command = std::process::Command::new(exe);
@@ -395,13 +399,21 @@ fn webview_command(
     if let Some(t) = title {
         command.args(["--title", t]);
     }
+    if maximized {
+        command.arg("--maximized");
+    }
     Ok(command)
 }
 
 // `_title` is ignored on Windows: the window title stays the constant so
 // window-reuse lookup (FindWindowW) keeps working.
 #[cfg(windows)]
-pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<()> {
+pub fn execute(
+    url: &str,
+    monitor: Option<u32>,
+    _title: Option<&str>,
+    maximized: bool,
+) -> Result<()> {
     use tao::event::{Event, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tao::platform::windows::WindowExtWindows;
@@ -430,6 +442,9 @@ pub fn execute(url: &str, monitor: Option<u32>, _title: Option<&str>) -> Result<
     enable_resize_frame(hwnd);
     if let Some(g) = saved {
         apply_geometry(hwnd, g);
+    }
+    if maximized {
+        window.set_maximized(true);
     }
 
     let proxy = event_loop.create_proxy();
@@ -670,6 +685,7 @@ pub fn summon_or_open(
     monitor: Option<u32>,
     title: Option<&str>,
     navigate: bool,
+    maximized: bool,
 ) -> Result<()> {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -697,17 +713,22 @@ pub fn summon_or_open(
         }
     }
 
-    spawn_window(url, monitor, title)
+    spawn_window(url, monitor, title, maximized)
 }
 
 #[cfg(windows)]
-fn spawn_window(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
+fn spawn_window(
+    url: &str,
+    monitor: Option<u32>,
+    title: Option<&str>,
+    maximized: bool,
+) -> Result<()> {
     use std::os::windows::process::CommandExt;
     use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    let child = webview_command(url, monitor, title)?
+    let child = webview_command(url, monitor, title, maximized)?
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .context("Failed to spawn webview process")?;
@@ -729,7 +750,12 @@ fn spawn_window(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<
 /// has no counterpart here — WKWebView has neither a status bar nor a setting for
 /// one, so it would take a custom in-page overlay. Out of scope.
 #[cfg(target_os = "macos")]
-pub fn execute(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
+pub fn execute(
+    url: &str,
+    monitor: Option<u32>,
+    title: Option<&str>,
+    _maximized: bool,
+) -> Result<()> {
     use tao::event::{Event, StartCause, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tao::window::WindowBuilder;
@@ -929,6 +955,7 @@ pub fn summon_or_open(
     monitor: Option<u32>,
     title: Option<&str>,
     navigate: bool,
+    maximized: bool,
 ) -> Result<()> {
     if activate_existing_webview() {
         if navigate {
@@ -936,7 +963,7 @@ pub fn summon_or_open(
         }
         return Ok(());
     }
-    spawn_window(url, monitor, title)
+    spawn_window(url, monitor, title, maximized)
 }
 
 /// Find a running `project-switch webview` process and bring it to the front.
@@ -981,15 +1008,25 @@ fn activate_pid(pid: i32) {
 }
 
 #[cfg(target_os = "macos")]
-fn spawn_window(url: &str, monitor: Option<u32>, title: Option<&str>) -> Result<()> {
-    webview_command(url, monitor, title)?
+fn spawn_window(
+    url: &str,
+    monitor: Option<u32>,
+    title: Option<&str>,
+    maximized: bool,
+) -> Result<()> {
+    webview_command(url, monitor, title, maximized)?
         .spawn()
         .context("Failed to spawn webview process")?;
     Ok(())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn execute(_url: &str, _monitor: Option<u32>, _title: Option<&str>) -> Result<()> {
+pub fn execute(
+    _url: &str,
+    _monitor: Option<u32>,
+    _title: Option<&str>,
+    _maximized: bool,
+) -> Result<()> {
     anyhow::bail!("The 'webview' subcommand is not supported on this platform")
 }
 
@@ -999,6 +1036,7 @@ pub fn summon_or_open(
     _monitor: Option<u32>,
     _title: Option<&str>,
     _navigate: bool,
+    _maximized: bool,
 ) -> Result<()> {
     anyhow::bail!("The webview window is not supported on this platform")
 }

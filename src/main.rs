@@ -44,6 +44,8 @@ enum Commands {
         /// Window title (macOS); defaults to the constant when absent
         #[arg(long)]
         title: Option<String>,
+        #[arg(long, hide = true)]
+        maximized: bool,
     },
     /// List all openable items from the current client (interactive)
     List {
@@ -84,7 +86,8 @@ fn main() {
             url,
             monitor,
             title,
-        }) => commands::webview::execute(&url, monitor, title.as_deref()),
+            maximized,
+        }) => commands::webview::execute(&url, monitor, title.as_deref(), maximized),
         Some(Commands::List {
             debug,
             gui,

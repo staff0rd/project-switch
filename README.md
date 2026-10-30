@@ -170,6 +170,16 @@ global:
     navigate: true           # also routes an open window to /?new
 ```
 
+Add `maximized: true` to have the command open the window maximised when it starts a new one, on the monitor its saved or default rect sits on. It has no effect when the window is already open. While the window is maximised its placement is not saved to `~/.project-switch-webview.yml`, so restoring it returns to the last un-maximised rect. `maximized` requires `webview: true`.
+
+```yaml
+global:
+  - key: assist
+    url: http://localhost:3100
+    webview: true
+    maximized: true          # a fresh window opens maximised
+```
+
 ## Keyboard shortcuts
 
 Add `hotkey` to a command to run it with one keystroke in the GUI launcher (hotkey / `list --gui`):

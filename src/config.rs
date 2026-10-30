@@ -156,6 +156,9 @@ pub struct ProjectCommand {
     /// instead of only bringing it to the front.
     #[serde(default, skip_serializing_if = "is_false")]
     pub navigate: bool,
+    /// Open the webview window maximised when this command spawns it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub maximized: bool,
     /// Force this command to the top of the recent list when the launcher
     /// opens with empty input, regardless of when it was last used.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -487,6 +490,7 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
         args: overlay.args.or(base.args),
         webview: overlay.webview || base.webview,
         navigate: overlay.navigate || base.navigate,
+        maximized: overlay.maximized || base.maximized,
         pinned: overlay.pinned || base.pinned,
         hotkey: overlay.hotkey.or(base.hotkey),
     }
@@ -561,6 +565,13 @@ fn validate_command_list(commands: &[ProjectCommand], context: &str) -> Result<(
         if cmd.navigate && !cmd.webview {
             anyhow::bail!(
                 "Command '{}' in {} has 'navigate: true' without 'webview: true' — navigate only applies to the webview window",
+                cmd.key,
+                context
+            );
+        }
+        if cmd.maximized && !cmd.webview {
+            anyhow::bail!(
+                "Command '{}' in {} has 'maximized: true' without 'webview: true' — maximized only applies to the webview window",
                 cmd.key,
                 context
             );
@@ -1080,6 +1091,7 @@ clients:
             args: None,
             webview: false,
             navigate: false,
+            maximized: false,
             pinned: false,
             hotkey: None,
         };

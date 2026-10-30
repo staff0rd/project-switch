@@ -381,6 +381,7 @@ pub fn execute_action(input: &str, browser_pick: BrowserPick) -> Result<()> {
                             config_manager.get_monitor(),
                             Some(&selected_command.key),
                             selected_command.navigate,
+                            selected_command.maximized,
                         );
                     }
 
