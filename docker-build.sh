@@ -3,6 +3,8 @@ set -eu
 
 TARGET="${BUILD_TARGET:-linux}"
 
+rm -rf "/output/$TARGET"
+
 case "$TARGET" in
     windows)
         echo "Building for Windows..."

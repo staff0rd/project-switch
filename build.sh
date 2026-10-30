@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    echo "Refusing to build in WSL. Run build.ps1 from a Windows checkout." >&2
+    exit 1
+fi
+
 # Detect host OS and set build target
 case "$(uname)" in
     Darwin) export BUILD_TARGET=macos ;;
@@ -18,6 +23,8 @@ rm -rf bin
 
 docker compose build build
 docker compose run --rm build
+cp -R bin/.staging/. bin/
+rm -rf bin/.staging
 
 echo "Build completed successfully!"
 

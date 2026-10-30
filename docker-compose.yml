@@ -3,7 +3,7 @@ services:
     build: .
     volumes:
       - .:/app
-      - ./bin:/output
+      - ./bin/.staging:/output
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/app/target
       - cargo-hotkey-target:/app/hotkey/target
