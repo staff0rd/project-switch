@@ -1,4 +1,5 @@
 mod browser_choice;
+mod calendar;
 mod commands;
 mod config;
 mod history;
@@ -61,6 +62,11 @@ enum Commands {
         #[command(subcommand)]
         command: paprika::GroceryCommand,
     },
+    #[command(about = "Manage the Google Calendar accounts shown in the launcher sidebar")]
+    Calendar {
+        #[command(subcommand)]
+        command: calendar::CalendarCommand,
+    },
 }
 
 fn main() {
@@ -91,6 +97,7 @@ fn main() {
             }
         }
         Some(Commands::Grocery { command }) => commands::grocery::execute(&command),
+        Some(Commands::Calendar { command }) => commands::calendar::execute(&command),
     };
 
     if let Err(e) = result {

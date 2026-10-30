@@ -679,6 +679,16 @@ global:
     }
 
     #[test]
+    fn config_calendar_command_is_not_shadowed() {
+        let (_, items) = load_items(&make_manager(
+            "shortcuts:\n  enabled: false\nglobal:\n- key: calendar\n  url: https://calendar.google.com\n",
+        ));
+        let (item, _) = resolve_item(&items, "calendar").unwrap();
+        assert_eq!(item.kind, ListItemKind::Command);
+        assert_eq!(item.display_detail, "https://calendar.google.com");
+    }
+
+    #[test]
     fn grocery_with_item_dispatches_add() {
         let (_, items) = load_items(&make_manager("shortcuts:\n  enabled: false\npaprika:\n"));
         let (item, args) = resolve_item(&items, "grocery oat milk").unwrap();

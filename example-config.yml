@@ -15,6 +15,13 @@ webservers:
     command: assist sessions web --no-open --port 3101
     port: 3101
 
+calendar:
+  clientId: 1234-abc.apps.googleusercontent.com
+  clientSecret: GOCSPX-...
+  accounts:
+    - label: work
+    - label: personal
+
 # Windows Desktop/Start Menu shortcut indexing
 shortcuts:
   enabled: true  # Set to false to hide shortcuts from the list command

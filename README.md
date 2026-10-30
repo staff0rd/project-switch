@@ -38,6 +38,9 @@ project-switch list
 
 # Manage the Paprika grocery list (see "Paprika grocery list" below)
 project-switch grocery list
+
+# Log in to Google Calendar for the launcher's alt+c sidebar (see "Calendar sidebar" below)
+project-switch calendar auth work
 ```
 
 ### Tab completion
@@ -229,6 +232,51 @@ In the GUI, Enter on `grocery` alone opens an in-window picker of the default li
 - Errors, including a missing or rejected token, show in the error banner.
 
 Only the default list is available in the launcher; use `project-switch grocery ... --list <name>` for others.
+
+## Calendar sidebar
+
+Press `alt+c` in the GUI launcher (hotkey / `list --gui`) to widen the window from 700 to 1000 px and show today's Google Calendar events in a sidebar to the right of the item list. It reads the Google Calendar API directly with a read-only OAuth login, merging one or more Google accounts.
+
+### Create the OAuth client
+
+1. In the [Google Cloud console](https://console.cloud.google.com/projectcreate), create (or pick) a project.
+2. Enable the [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com) for it.
+3. Configure the [OAuth consent screen](https://console.cloud.google.com/auth/overview). For a Workspace account, an **Internal** audience needs no verification. For personal Gmail accounts, choose **External** and add each Gmail address as a [test user](https://console.cloud.google.com/auth/audience).
+4. [Create an OAuth client ID](https://console.cloud.google.com/auth/clients/create) of type **Desktop app**, and copy its client ID and secret.
+
+One client serves every account; only the refresh tokens are per account.
+
+### Configure and log in
+
+```yaml
+calendar:
+  clientId: 1234-abc.apps.googleusercontent.com
+  clientSecret: GOCSPX-...
+  accounts:
+    - label: work
+      refreshToken: ...   # written by `project-switch calendar auth work`
+    - label: personal
+      refreshToken: ...
+```
+
+```bash
+# Log in to a Google account and save its refresh token under the label "work"
+project-switch calendar auth work
+```
+
+- `calendar auth <label>` opens a Google login in your browser (scope `calendar.readonly`), receives the result on a local `127.0.0.1` port, and saves the refresh token as that account's `refreshToken` in the local `~/.project-switch.yml`, never in an included file. The account is added if the label isn't listed yet. If the browser doesn't open, the login URL is printed.
+- The client ID and secret can live in an included file; in an `include` merge, `accounts` merge by `label` and local values win.
+- Tokens and the client secret are never logged.
+
+### Sidebar behaviour
+
+- `alt+c` again, or Esc, closes the sidebar and restores the 700 px window; a second Esc hides the launcher as usual. The input, filtering, arrow keys, Enter and command hotkeys keep working while it's open. `alt+c` is reserved: a command with `hotkey: alt+c` fails config load.
+- Each account shows every calendar ticked (`selected`) in its Google calendar list. Recurring events are expanded by Google, and times show in local time. Cancelled events, working-location entries and events you've declined are hidden. A meeting that appears in two accounts with the same title and times shows once.
+- The header shows the date and the data's age (`updated 2 min ago`). Events are fetched in the background when the sidebar opens and cached for 5 minutes; after that, reopening keeps the old events visible with `refreshing` in the header until the refetch completes.
+- All-day events are pinned above the grid. The hour grid covers 08:00–18:00 and grows, with a scrollbar, when an event falls outside that range. Blocks are sized by duration, overlapping events sit side by side, finished events are dimmed, and a red line marks the current time. Hover a block for its full title and times.
+- Blocks use the event's own Google colour, falling back to its calendar's colour, mapped to Google Calendar's current web palette.
+- A failing account shows `Calendar '<label>': ...` in the error banner while the other accounts still render. A missing or revoked token says to run `project-switch calendar auth <label>`.
+- With no `calendar` section, or no account with a token, the sidebar shows `No calendars configured` with setup instructions.
 
 ## Webserver
 

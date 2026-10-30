@@ -3,6 +3,7 @@
 //! Manages visibility, input, filtering, selection, and transitions
 //! independently of the GUI framework for testability.
 
+use crate::calendar::{CalendarContent, CalendarDay};
 use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
 use crate::launcher::grocery_picker::{GroceryPicker, GroceryRow};
@@ -13,6 +14,9 @@ use crate::launcher::{
 };
 use crate::paprika::GroceryCommand;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::time::{Duration, Instant};
+
+pub const CALENDAR_FRESH_FOR: Duration = Duration::from_secs(5 * 60);
 
 /// The current input mode, derived from the input text.
 #[derive(Debug, Clone, PartialEq)]
@@ -70,10 +74,16 @@ pub struct WindowState {
     pub grocery_picker: Option<GroceryPicker>,
     /// Message shown in the launcher's error banner.
     pub error: Option<String>,
+    pub calendar_open: bool,
+    pub calendar: CalendarContent,
+    pub calendar_refreshing: bool,
+    calendar_fetched_at: Option<Instant>,
     action_tx: Sender<String>,
     action_rx: Receiver<String>,
     grocery_tx: Sender<Result<Vec<String>, String>>,
     grocery_rx: Receiver<Result<Vec<String>, String>>,
+    calendar_tx: Sender<Result<CalendarContent, String>>,
+    calendar_rx: Receiver<Result<CalendarContent, String>>,
     pending_actions: usize,
 }
 
@@ -81,6 +91,7 @@ impl WindowState {
     pub fn new(items: Vec<ListItem>, recent_keys: Vec<String>) -> Self {
         let (action_tx, action_rx) = channel();
         let (grocery_tx, grocery_rx) = channel();
+        let (calendar_tx, calendar_rx) = channel();
         let mut s = Self {
             input: String::new(),
             selected: 0,
@@ -94,10 +105,16 @@ impl WindowState {
             browser_picker: None,
             grocery_picker: None,
             error: None,
+            calendar_open: false,
+            calendar: CalendarContent::Loading,
+            calendar_refreshing: false,
+            calendar_fetched_at: None,
             action_tx,
             action_rx,
             grocery_tx,
             grocery_rx,
+            calendar_tx,
+            calendar_rx,
             pending_actions: 0,
         };
         s.update_filtered_count();
@@ -115,6 +132,7 @@ impl WindowState {
         self.browser_picker = None;
         self.grocery_picker = None;
         self.error = None;
+        self.calendar_open = false;
         self.update_filtered_count();
     }
 
@@ -209,6 +227,73 @@ impl WindowState {
                 }
             }
         }
+        while let Ok(result) = self.calendar_rx.try_recv() {
+            self.pending_actions = self.pending_actions.saturating_sub(1);
+            self.calendar_refreshing = false;
+            match result {
+                Ok(content) => {
+                    self.calendar = content;
+                    self.calendar_fetched_at = Some(Instant::now());
+                    self.show_calendar_errors();
+                }
+                Err(message) => {
+                    if self.calendar == CalendarContent::Loading {
+                        self.calendar = CalendarContent::Day(CalendarDay::default());
+                    }
+                    self.calendar_fetched_at = None;
+                    if self.calendar_open {
+                        self.set_error(message);
+                    }
+                }
+            }
+        }
+    }
+
+    fn show_calendar_errors(&mut self) {
+        if let CalendarContent::Day(day) = &self.calendar {
+            if self.calendar_open && !day.errors.is_empty() {
+                self.set_error(day.errors.join("\n"));
+            }
+        }
+    }
+
+    fn spawn_result<T, F>(&mut self, tx: Sender<Result<T, String>>, action: F)
+    where
+        T: Send + 'static,
+        F: FnOnce() -> anyhow::Result<T> + Send + 'static,
+    {
+        self.pending_actions += 1;
+        std::thread::spawn(move || {
+            let _ = tx.send(action().map_err(|e| format!("{e:#}")));
+        });
+    }
+
+    pub fn toggle_calendar<F>(&mut self, fetch: F)
+    where
+        F: FnOnce() -> anyhow::Result<CalendarContent> + Send + 'static,
+    {
+        if self.calendar_open {
+            self.close_calendar();
+            return;
+        }
+        self.calendar_open = true;
+        self.show_calendar_errors();
+        let fresh = self
+            .calendar_age()
+            .is_some_and(|age| age < CALENDAR_FRESH_FOR);
+        if fresh || self.calendar_refreshing {
+            return;
+        }
+        self.calendar_refreshing = true;
+        self.spawn_result(self.calendar_tx.clone(), fetch);
+    }
+
+    pub fn calendar_age(&self) -> Option<Duration> {
+        self.calendar_fetched_at.map(|at| at.elapsed())
+    }
+
+    pub fn close_calendar(&mut self) {
+        self.calendar_open = false;
     }
 
     pub fn open_grocery_picker(&mut self) {
@@ -227,11 +312,7 @@ impl WindowState {
         }
         self.input.clear();
         self.selected = 0;
-        let tx = self.grocery_tx.clone();
-        self.pending_actions += 1;
-        std::thread::spawn(move || {
-            let _ = tx.send(action().map_err(|e| format!("{e:#}")));
-        });
+        self.spawn_result(self.grocery_tx.clone(), action);
     }
 
     pub fn grocery_rows(&self) -> Vec<GroceryRow> {
@@ -1397,6 +1478,157 @@ mod tests {
         settle(&mut state);
         assert!(state.grocery_picker.is_none());
         assert!(state.error.is_none());
+    }
+
+    fn state_with_calendar_open() -> WindowState {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.toggle_calendar(|| Ok(CalendarContent::NotConfigured));
+        state
+    }
+
+    #[test]
+    fn opening_calendar_loads_in_the_background() {
+        let mut state = state_with_calendar_open();
+        assert!(state.calendar_open);
+        assert_eq!(state.calendar, CalendarContent::Loading);
+        settle(&mut state);
+        assert_eq!(state.calendar, CalendarContent::NotConfigured);
+    }
+
+    #[test]
+    fn toggling_again_closes_the_calendar() {
+        let mut state = state_with_calendar_open();
+        state.toggle_calendar(|| panic!("closing must not fetch"));
+        assert!(!state.calendar_open);
+        settle(&mut state);
+    }
+
+    #[test]
+    fn calendar_keeps_list_filtering_working() {
+        let mut state = state_with_calendar_open();
+        state.set_input("ji".to_string());
+        assert_eq!(state.selected_action_input().as_deref(), Some("jira"));
+        assert!(state.calendar_open);
+    }
+
+    #[test]
+    fn failed_calendar_fetch_shows_error_banner() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.toggle_calendar(|| anyhow::bail!("Calendar 'work': boom"));
+        settle(&mut state);
+        assert_eq!(state.error.as_deref(), Some("Calendar 'work': boom"));
+        assert_eq!(state.calendar, CalendarContent::Day(CalendarDay::default()));
+    }
+
+    #[test]
+    fn failed_accounts_show_in_the_banner_beside_rendered_ones() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        let day = CalendarDay {
+            errors: vec![
+                "Calendar 'work': boom".to_string(),
+                "Calendar 'family': bang".to_string(),
+            ],
+            ..CalendarDay::default()
+        };
+        let fetched = CalendarContent::Day(day);
+        let expected = fetched.clone();
+        state.toggle_calendar(move || Ok(fetched));
+        settle(&mut state);
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Calendar 'work': boom\nCalendar 'family': bang")
+        );
+        assert_eq!(state.calendar, expected);
+    }
+
+    #[test]
+    fn calendar_error_after_close_is_not_shown() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.toggle_calendar(|| anyhow::bail!("boom"));
+        state.close_calendar();
+        settle(&mut state);
+        assert!(state.error.is_none());
+    }
+
+    fn reopen_calendar<F>(state: &mut WindowState, fetch: F)
+    where
+        F: FnOnce() -> anyhow::Result<CalendarContent> + Send + 'static,
+    {
+        state.close_calendar();
+        state.show();
+        state.toggle_calendar(fetch);
+    }
+
+    fn stale_calendar(state: &mut WindowState) {
+        state.calendar_fetched_at = Instant::now().checked_sub(CALENDAR_FRESH_FOR);
+    }
+
+    fn day_with_errors(errors: &[&str]) -> CalendarContent {
+        CalendarContent::Day(CalendarDay {
+            errors: errors.iter().map(|e| e.to_string()).collect(),
+            ..CalendarDay::default()
+        })
+    }
+
+    #[test]
+    fn reopening_within_five_minutes_uses_the_cache() {
+        let mut state = state_with_calendar_open();
+        settle(&mut state);
+        reopen_calendar(&mut state, || panic!("fresh cache must not refetch"));
+        assert_eq!(state.calendar, CalendarContent::NotConfigured);
+        assert!(!state.calendar_refreshing);
+        assert!(!state.has_pending_actions());
+    }
+
+    #[test]
+    fn stale_cache_stays_visible_while_refreshing() {
+        let mut state = state_with_calendar_open();
+        settle(&mut state);
+        stale_calendar(&mut state);
+        let refreshed = day_with_errors(&[]);
+        let expected = refreshed.clone();
+        reopen_calendar(&mut state, move || Ok(refreshed));
+        assert_eq!(state.calendar, CalendarContent::NotConfigured);
+        assert!(state.calendar_refreshing);
+        settle(&mut state);
+        assert_eq!(state.calendar, expected);
+        assert!(!state.calendar_refreshing);
+        assert!(state.calendar_age().unwrap() < CALENDAR_FRESH_FOR);
+    }
+
+    #[test]
+    fn failed_refresh_keeps_stale_events_and_retries_next_open() {
+        let mut state = state_with_calendar_open();
+        settle(&mut state);
+        stale_calendar(&mut state);
+        reopen_calendar(&mut state, || anyhow::bail!("offline"));
+        settle(&mut state);
+        assert_eq!(state.calendar, CalendarContent::NotConfigured);
+        assert_eq!(state.error.as_deref(), Some("offline"));
+        assert!(state.calendar_age().is_none());
+    }
+
+    #[test]
+    fn cached_account_errors_show_again_on_reopen() {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        let fetched = day_with_errors(&["Calendar 'work': boom"]);
+        state.toggle_calendar(move || Ok(fetched));
+        settle(&mut state);
+        reopen_calendar(&mut state, || panic!("fresh cache must not refetch"));
+        assert_eq!(state.error.as_deref(), Some("Calendar 'work': boom"));
+    }
+
+    #[test]
+    fn show_closes_the_calendar() {
+        let mut state = state_with_calendar_open();
+        settle(&mut state);
+        state.show();
+        assert!(!state.calendar_open);
     }
 
     // --- Error surfacing (backlog a935) ---

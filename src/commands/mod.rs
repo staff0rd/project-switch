@@ -1,3 +1,4 @@
+pub mod calendar;
 pub mod current;
 pub mod grocery;
 pub mod list;

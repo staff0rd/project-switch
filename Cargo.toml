@@ -19,6 +19,9 @@ anyhow = "1.0"
 dirs = "5.0"
 meval = "0.2"
 urlencoding = "2.1"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+serde_json = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 # GUI (egui/eframe)
 # glow, not the 0.36 default wgpu: wgpu adapter init adds ~270ms to every launcher spawn.

@@ -1,4 +1,5 @@
 use crate::launcher::key_combo::KeyCombo;
+use crate::launcher::CALENDAR_HOTKEY;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
@@ -66,6 +67,33 @@ pub struct PaprikaConfig {
     pub image: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CalendarConfig {
+    #[serde(rename = "clientId", default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(
+        rename = "clientSecret",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<CalendarAccount>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CalendarAccount {
+    pub label: String,
+    #[serde(
+        rename = "refreshToken",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub refresh_token: Option<String>,
 }
 
 fn null_as_empty_section<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
@@ -197,6 +225,12 @@ pub struct Config {
         skip_serializing_if = "Option::is_none"
     )]
     pub paprika: Option<PaprikaConfig>,
+    #[serde(
+        default,
+        deserialize_with = "null_as_empty_section",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub calendar: Option<CalendarConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clients: Vec<Client>,
 }
@@ -297,7 +331,31 @@ fn merge_configs(base: Config, overlay: Config) -> Config {
         },
         monitor: overlay.monitor.or(base.monitor),
         paprika: merge_paprika(base.paprika, overlay.paprika),
+        calendar: merge_calendar(base.calendar, overlay.calendar),
         clients: merge_client_lists(base.clients, overlay.clients),
+    }
+}
+
+fn merge_calendar(
+    base: Option<CalendarConfig>,
+    overlay: Option<CalendarConfig>,
+) -> Option<CalendarConfig> {
+    match (base, overlay) {
+        (Some(b), Some(o)) => Some(CalendarConfig {
+            client_id: o.client_id.or(b.client_id),
+            client_secret: o.client_secret.or(b.client_secret),
+            accounts: merge_keyed_lists(
+                b.accounts,
+                o.accounts,
+                |a| a.label.as_str(),
+                |b, o| CalendarAccount {
+                    label: o.label,
+                    refresh_token: o.refresh_token.or(b.refresh_token),
+                },
+                false,
+            ),
+        }),
+        (b, o) => o.or(b),
     }
 }
 
@@ -435,7 +493,8 @@ fn merge_commands(base: ProjectCommand, overlay: ProjectCommand) -> ProjectComma
 }
 
 fn validate_hotkeys(commands: &[ProjectCommand], context: &str) -> Result<()> {
-    let mut seen: std::collections::HashMap<KeyCombo, &str> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashMap<KeyCombo, &str> =
+        std::collections::HashMap::from([(CALENDAR_HOTKEY, "the calendar sidebar")]);
     for cmd in commands {
         let Some(hotkey) = cmd.hotkey.as_deref() else {
             continue;
@@ -661,6 +720,7 @@ impl ConfigManager {
                 webservers: self.config.webservers.clone(),
                 monitor: self.config.monitor,
                 paprika: self.config.paprika.clone(),
+                calendar: self.config.calendar.clone(),
                 clients: self.local_clients.clone(),
             };
             serde_yaml::to_value(&local_config).context("Failed to serialize config")?
@@ -684,7 +744,11 @@ impl ConfigManager {
         self.config.paprika.as_ref()
     }
 
-    pub fn set_local_paprika_token(&mut self, token: &str) -> Result<()> {
+    fn edit_local_section(
+        &mut self,
+        key: &str,
+        edit: impl FnOnce(&mut serde_yaml::Mapping),
+    ) -> Result<()> {
         let raw = self
             .raw_yaml
             .get_or_insert_with(|| Value::Mapping(serde_yaml::Mapping::new()));
@@ -692,24 +756,82 @@ impl ConfigManager {
             anyhow::bail!("Config file is not a YAML mapping");
         };
         let section = map
-            .entry(Value::String("paprika".to_string()))
+            .entry(Value::String(key.to_string()))
             .or_insert(Value::Null);
         if !section.is_mapping() {
             *section = Value::Mapping(serde_yaml::Mapping::new());
         }
         if let Value::Mapping(section) = section {
+            edit(section);
+        }
+        let raw = raw.clone();
+        self.write_yaml(&raw)
+    }
+
+    pub fn set_local_paprika_token(&mut self, token: &str) -> Result<()> {
+        self.edit_local_section("paprika", |section| {
             section.insert(
                 Value::String("token".to_string()),
                 Value::String(token.to_string()),
             );
-        }
-        let raw = raw.clone();
-        self.write_yaml(&raw)?;
+        })?;
 
         self.config
             .paprika
             .get_or_insert_with(Default::default)
             .token = Some(token.to_string());
+        Ok(())
+    }
+
+    pub fn get_calendar_config(&self) -> Option<&CalendarConfig> {
+        self.config.calendar.as_ref()
+    }
+
+    pub fn set_local_calendar_token(&mut self, label: &str, token: &str) -> Result<()> {
+        self.edit_local_section("calendar", |section| {
+            let accounts = section
+                .entry(Value::String("accounts".to_string()))
+                .or_insert(Value::Null);
+            if !accounts.is_sequence() {
+                *accounts = Value::Sequence(Vec::new());
+            }
+            let Value::Sequence(accounts) = accounts else {
+                return;
+            };
+            let token_key = Value::String("refreshToken".to_string());
+            let token = Value::String(token.to_string());
+            match accounts
+                .iter_mut()
+                .find(|a| a.get("label").and_then(Value::as_str) == Some(label))
+            {
+                Some(Value::Mapping(account)) => {
+                    account.insert(token_key, token);
+                }
+                _ => {
+                    let mut account = serde_yaml::Mapping::new();
+                    account.insert(
+                        Value::String("label".to_string()),
+                        Value::String(label.to_string()),
+                    );
+                    account.insert(token_key, token);
+                    accounts.push(Value::Mapping(account));
+                }
+            }
+        })?;
+
+        let accounts = &mut self
+            .config
+            .calendar
+            .get_or_insert_with(Default::default)
+            .accounts;
+        let refresh_token = Some(token.to_string());
+        match accounts.iter_mut().find(|a| a.label == label) {
+            Some(account) => account.refresh_token = refresh_token,
+            None => accounts.push(CalendarAccount {
+                label: label.to_string(),
+                refresh_token,
+            }),
+        }
         Ok(())
     }
 
@@ -1346,5 +1468,117 @@ clients:
         cm.set_local_paprika_token("tok").unwrap();
         let written = fs::read_to_string(&cm.config_path).unwrap();
         assert!(written.contains("paprika:\n  token: tok"), "got: {written}");
+    }
+
+    fn written_calendar_accounts(cm: &ConfigManager) -> Vec<CalendarAccount> {
+        let contents = fs::read_to_string(&cm.config_path).unwrap();
+        serde_yaml::from_str::<Config>(&contents)
+            .unwrap()
+            .calendar
+            .unwrap()
+            .accounts
+    }
+
+    fn account(label: &str, token: Option<&str>) -> CalendarAccount {
+        CalendarAccount {
+            label: label.to_string(),
+            refresh_token: token.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn calendar_section_parses() {
+        assert_eq!(make_manager("clients: []\n").get_calendar_config(), None);
+        assert_eq!(
+            make_manager("calendar:\n").get_calendar_config(),
+            Some(&CalendarConfig::default())
+        );
+        let cm = make_manager(
+            "calendar:\n  clientId: id\n  clientSecret: secret\n  accounts:\n  - label: work\n    refreshToken: rt\n  - label: personal\n",
+        );
+        assert_eq!(
+            cm.get_calendar_config(),
+            Some(&CalendarConfig {
+                client_id: Some("id".to_string()),
+                client_secret: Some("secret".to_string()),
+                accounts: vec![account("work", Some("rt")), account("personal", None)],
+            })
+        );
+    }
+
+    #[test]
+    fn unknown_calendar_field_is_rejected() {
+        let err = load_error("calendar:\n  password: x\n");
+        assert!(err.contains("unknown field `password`"), "got: {err}");
+        let err = load_error("calendar:\n  accounts:\n  - label: a\n    token: x\n");
+        assert!(err.contains("unknown field `token`"), "got: {err}");
+    }
+
+    #[test]
+    fn local_calendar_fields_merge_over_included() {
+        let base = write_temp_config(
+            "calendar:\n  clientId: shared\n  clientSecret: s\n  accounts:\n  - label: work\n",
+        );
+        let cm = make_manager(&format!(
+            "include: {}\ncalendar:\n  accounts:\n  - label: work\n    refreshToken: rt\n  - label: personal\n",
+            base.display()
+        ));
+        assert_eq!(
+            cm.get_calendar_config(),
+            Some(&CalendarConfig {
+                client_id: Some("shared".to_string()),
+                client_secret: Some("s".to_string()),
+                accounts: vec![account("work", Some("rt")), account("personal", None)],
+            })
+        );
+    }
+
+    #[test]
+    fn calendar_token_is_saved_to_local_config_only() {
+        let base_contents = "calendar:\n  clientId: shared\n  accounts:\n  - label: work\n";
+        let base = write_temp_config(base_contents);
+        let mut cm = make_manager(&format!(
+            "include: {}\ncalendar:\n  accounts:\n  - label: personal\n    refreshToken: old\n",
+            base.display()
+        ));
+        cm.set_local_calendar_token("work", "new-work").unwrap();
+        cm.set_local_calendar_token("personal", "new-personal")
+            .unwrap();
+
+        assert_eq!(fs::read_to_string(&base).unwrap(), base_contents);
+        assert_eq!(
+            written_calendar_accounts(&cm),
+            vec![
+                account("personal", Some("new-personal")),
+                account("work", Some("new-work")),
+            ]
+        );
+        assert_eq!(
+            cm.get_calendar_config().unwrap().accounts,
+            vec![
+                account("work", Some("new-work")),
+                account("personal", Some("new-personal")),
+            ]
+        );
+    }
+
+    #[test]
+    fn calendar_token_creates_section_when_absent() {
+        let mut cm = make_manager("clients: []\n");
+        cm.set_local_calendar_token("work", "rt").unwrap();
+        assert_eq!(
+            written_calendar_accounts(&cm),
+            vec![account("work", Some("rt"))]
+        );
+    }
+
+    #[test]
+    fn command_hotkey_clashing_with_calendar_is_rejected() {
+        let err = load_error("global:\n- key: cal\n  url: https://x\n  hotkey: alt+c\n");
+        assert!(err.contains("Command 'cal'"), "got: {err}");
+        assert!(
+            err.contains("already bound to 'the calendar sidebar'"),
+            "got: {err}"
+        );
     }
 }

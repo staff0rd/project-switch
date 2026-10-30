@@ -6,11 +6,16 @@ use crate::launcher::browser_picker::BrowserPicker;
 use crate::launcher::grocery_picker::GroceryRow;
 use crate::launcher::key_combo::KeyCombo;
 use crate::launcher::picker::{PickerEntry, PickerOutcome};
-use crate::launcher::{get_path_entries, CalcResult, ListItem, ListItemKind};
+use crate::launcher::{get_path_entries, CalcResult, ListItem, ListItemKind, CALENDAR_HOTKEY};
+use crate::ui::calendar::{Freshness, SIDEBAR_WIDTH};
 use crate::ui::state::{FilteredEntry, InputMode, Visibility, WindowState};
+use crate::ui::WINDOW_SIZE;
 use eframe::egui;
+use std::time::Duration;
 
-const ERROR_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 110, 110);
+const NOW_LINE_REFRESH: Duration = Duration::from_secs(30);
+
+pub const ERROR_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 110, 110);
 const CURRENT_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 200, 100);
 
 /// Keep the highlighted row on screen when the keyboard moved the selection.
@@ -78,6 +83,22 @@ fn activate_item(state: &mut WindowState, prev_input: &mut String, item: ListIte
     }
 }
 
+fn toggle_calendar(state: &mut WindowState) {
+    state.toggle_calendar(crate::calendar::load_today);
+}
+
+fn fit_window_to_calendar(ctx: &egui::Context, calendar_open: bool) {
+    let width = WINDOW_SIZE[0] + if calendar_open { SIDEBAR_WIDTH } else { 0.0 };
+    let id = egui::Id::new("launcher_window_width");
+    if ctx.data(|d| d.get_temp::<f32>(id)) != Some(width) {
+        ctx.data_mut(|d| d.insert_temp(id, width));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            width,
+            WINDOW_SIZE[1],
+        )));
+    }
+}
+
 fn pressed_combo(event: &egui::Event) -> Option<KeyCombo> {
     let egui::Event::Key {
         key,
@@ -101,18 +122,17 @@ fn pressed_combo(event: &egui::Event) -> Option<KeyCombo> {
     })
 }
 
-fn consume_hotkey_and_its_text(ui: &egui::Ui, state: &WindowState) -> Option<ListItem> {
+fn consume_combo_and_its_text<T>(ui: &egui::Ui, find: impl Fn(KeyCombo) -> Option<T>) -> Option<T> {
     ui.input_mut(|input| {
-        let (index, item) = input.events.iter().enumerate().find_map(|(i, event)| {
-            pressed_combo(event)
-                .and_then(|combo| state.hotkey_item(combo))
-                .map(|item| (i, item))
-        })?;
+        let (index, found) =
+            input.events.iter().enumerate().find_map(|(i, event)| {
+                pressed_combo(event).and_then(&find).map(|found| (i, found))
+            })?;
         input.events.remove(index);
         input
             .events
             .retain(|event| !matches!(event, egui::Event::Text(_)));
-        Some(item)
+        Some(found)
     })
 }
 
@@ -348,6 +368,24 @@ pub fn render_launcher(
     project_name: &str,
     prev_input: &mut String,
 ) {
+    if consume_combo_and_its_text(ui, |combo| (combo == CALENDAR_HOTKEY).then_some(())).is_some() {
+        toggle_calendar(state);
+    }
+    fit_window_to_calendar(ui.ctx(), state.calendar_open);
+    if state.calendar_open {
+        egui::Panel::right("calendar_sidebar")
+            .exact_size(SIDEBAR_WIDTH)
+            .resizable(false)
+            .show(ui, |ui| {
+                let freshness = Freshness {
+                    age: state.calendar_age(),
+                    refreshing: state.calendar_refreshing,
+                };
+                crate::ui::calendar::render_sidebar(ui, &state.calendar, &freshness)
+            });
+        ui.ctx().request_repaint_after(NOW_LINE_REFRESH);
+    }
+
     egui::CentralPanel::default().show(ui, |ui| {
         // Draggable title bar
         let (title_rect, response) =
@@ -373,7 +411,7 @@ pub fn render_launcher(
             && state.browser_picker.is_none()
             && state.input_mode() == InputMode::Normal;
         if main_list_open {
-            if let Some(item) = consume_hotkey_and_its_text(ui, state) {
+            if let Some(item) = consume_combo_and_its_text(ui, |combo| state.hotkey_item(combo)) {
                 let action = item.key.clone();
                 activate_item(state, prev_input, item, action);
                 ui.ctx().request_repaint();
@@ -419,6 +457,8 @@ pub fn render_launcher(
             } else if state.browser_picker.is_some() || state.grocery_picker.is_some() {
                 state.close_picker();
                 *prev_input = state.input.clone();
+            } else if state.calendar_open {
+                state.close_calendar();
             } else {
                 state.hide();
             }

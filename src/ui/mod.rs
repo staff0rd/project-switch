@@ -1,5 +1,6 @@
 //! egui/eframe windowed launcher — text input, filtered list, keyboard nav.
 
+pub mod calendar;
 pub mod state;
 pub mod window;
 

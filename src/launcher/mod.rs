@@ -8,6 +8,13 @@ pub mod picker;
 
 use key_combo::KeyCombo;
 
+pub const CALENDAR_HOTKEY: KeyCombo = KeyCombo {
+    alt: true,
+    ctrl: false,
+    shift: false,
+    key: 'C',
+};
+
 /// The kind of item in the launcher list.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListItemKind {
