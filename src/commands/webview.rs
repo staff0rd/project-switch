@@ -969,6 +969,9 @@ pub fn summon_or_open(
     spawn_window(url, monitor, title, maximized)
 }
 
+#[cfg(target_os = "macos")]
+const WEBVIEW_PROCESS_PATTERN: &str = "^([^ ]*/)?project-switch webview( |$)";
+
 /// Find a running `project-switch webview` process and bring it to the front.
 /// Returns true when one was found and activated.
 #[cfg(target_os = "macos")]
@@ -977,7 +980,7 @@ fn activate_existing_webview() -> bool {
 
     let our_pid = std::process::id().to_string();
     let Ok(output) = Command::new("pgrep")
-        .args(["-f", "project-switch webview"])
+        .args(["-f", WEBVIEW_PROCESS_PATTERN])
         .output()
     else {
         return false;

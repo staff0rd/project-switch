@@ -194,7 +194,10 @@ impl WindowState {
         std::thread::spawn(move || {
             let message = match action() {
                 Ok(()) => String::new(),
-                Err(e) => format!("{e:#}"),
+                Err(e) => {
+                    crate::utils::log::append_error(&format!("Launcher action failed: {e:#}"));
+                    format!("{e:#}")
+                }
             };
             let _ = tx.send(message);
         });
