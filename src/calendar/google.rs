@@ -1,5 +1,5 @@
 use super::colours::{calendar_colour, event_colour};
-use super::{auth_hint, local_midnight, CalendarDay, CalendarEvent, Client, EventColour};
+use super::{auth_hint, local_midnight, CalendarEvent, Client, EventColour};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, NaiveDate};
 use serde::Deserialize;
@@ -258,13 +258,13 @@ pub fn parse_events(body: &str, calendar: &CalendarInfo) -> Result<Vec<CalendarE
         .collect())
 }
 
-pub fn fetch_day(
+pub fn fetch_events(
     client: &Client,
     label: &str,
     refresh_token: &str,
     start: DateTime<Local>,
     end: DateTime<Local>,
-) -> Result<CalendarDay> {
+) -> Result<Vec<CalendarEvent>> {
     let agent = agent();
     let access_token = refresh_access_token(&agent, client, label, refresh_token)?;
     let calendars = parse_selected_calendars(&get(
@@ -293,10 +293,7 @@ pub fn fetch_day(
         )?;
         events.extend(parse_events(&body, calendar)?);
     }
-    Ok(CalendarDay {
-        events,
-        errors: Vec::new(),
-    })
+    Ok(events)
 }
 
 #[cfg(test)]

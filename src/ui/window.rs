@@ -7,7 +7,7 @@ use crate::launcher::grocery_picker::GroceryRow;
 use crate::launcher::key_combo::KeyCombo;
 use crate::launcher::picker::{PickerEntry, PickerOutcome};
 use crate::launcher::{get_path_entries, CalcResult, ListItem, ListItemKind, CALENDAR_HOTKEY};
-use crate::ui::calendar::{Freshness, SIDEBAR_WIDTH};
+use crate::ui::calendar::SIDEBAR_WIDTH;
 use crate::ui::state::{FilteredEntry, InputMode, Visibility, WindowState};
 use crate::ui::WINDOW_SIZE;
 use eframe::egui;
@@ -85,10 +85,23 @@ fn activate_item(state: &mut WindowState, prev_input: &mut String, item: ListIte
 
 fn toggle_calendar(state: &mut WindowState) {
     state.toggle_calendar(|| {
-        let content = crate::calendar::load_today()?;
+        let content = crate::calendar::load_window()?;
         crate::calendar::cache::save(&content);
         Ok(content)
     });
+}
+
+fn step_calendar_with_alt_arrows(ui: &egui::Ui, state: &mut WindowState) {
+    let (back, forward) = ui.input_mut(|input| {
+        (
+            input.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft),
+            input.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight),
+        )
+    });
+    state.step_calendar_day(
+        i64::from(forward) - i64::from(back),
+        crate::calendar::load_day,
+    );
 }
 
 fn fit_window_to_calendar(ctx: &egui::Context, calendar_open: bool) {
@@ -377,15 +390,13 @@ pub fn render_launcher(
     }
     fit_window_to_calendar(ui.ctx(), state.calendar_open);
     if state.calendar_open {
+        step_calendar_with_alt_arrows(ui, state);
         egui::Panel::right("calendar_sidebar")
             .exact_size(SIDEBAR_WIDTH)
             .resizable(false)
             .show(ui, |ui| {
-                let freshness = Freshness {
-                    age: state.calendar_age(),
-                    refreshing: state.calendar_refreshing,
-                };
-                crate::ui::calendar::render_sidebar(ui, &state.calendar, &freshness)
+                let (content, freshness) = state.viewed_calendar();
+                crate::ui::calendar::render_sidebar(ui, content, state.calendar_date, &freshness)
             });
         ui.ctx().request_repaint_after(NOW_LINE_REFRESH);
     }

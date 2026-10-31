@@ -1,6 +1,6 @@
-use crate::calendar::{today_start, CalendarContent, CalendarDay, CalendarEvent};
+use crate::calendar::{local_midnight, CalendarContent, CalendarEvent};
 use crate::ui::window::ERROR_COLOR;
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveDate};
 use eframe::egui;
 use std::time::Duration;
 
@@ -36,12 +36,17 @@ fn freshness_label(content: &CalendarContent, freshness: &Freshness) -> Option<S
     })
 }
 
-pub fn render_sidebar(ui: &mut egui::Ui, content: &CalendarContent, freshness: &Freshness) {
+pub fn render_sidebar(
+    ui: &mut egui::Ui,
+    content: &CalendarContent,
+    date: NaiveDate,
+    freshness: &Freshness,
+) {
     let now = Local::now();
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(now.format("%a %-d %b").to_string())
+            egui::RichText::new(date.format("%a %-d %b").to_string())
                 .size(16.0)
                 .color(egui::Color32::WHITE),
         );
@@ -57,23 +62,38 @@ pub fn render_sidebar(ui: &mut egui::Ui, content: &CalendarContent, freshness: &
     });
     ui.separator();
     match content {
-        CalendarContent::Loading => gray_label(ui, "Loading today's calendar..."),
+        CalendarContent::Loading => gray_label(ui, "Loading calendar..."),
         CalendarContent::NotConfigured => render_setup(ui),
-        CalendarContent::Day(day) => render_day(ui, day, now),
+        CalendarContent::Days(days) => {
+            let viewed_now = (date == now.date_naive()).then_some(now);
+            render_day(ui, days.events_on(date), date, viewed_now);
+        }
     }
 }
 
-fn render_day(ui: &mut egui::Ui, day: &CalendarDay, now: DateTime<Local>) {
+fn finished(event: &CalendarEvent, now: Option<DateTime<Local>>) -> bool {
+    now.is_some_and(|now| event.end <= now)
+}
+
+fn render_day(
+    ui: &mut egui::Ui,
+    events: &[CalendarEvent],
+    date: NaiveDate,
+    now: Option<DateTime<Local>>,
+) {
     let panel_fill = ui.visuals().panel_fill;
-    for event in day.events.iter().filter(|event| event.all_day) {
+    for event in events.iter().filter(|event| event.all_day) {
         let (block, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), ALL_DAY_HEIGHT),
             egui::Sense::hover(),
         );
-        paint_all_day(ui.painter(), block, event, event.end <= now, panel_fill);
+        paint_all_day(ui.painter(), block, event, finished(event, now), panel_fill);
         response.on_hover_text(format!("{}\nAll day", event.title));
     }
-    render_grid(ui, &day.events, now);
+    let Some(day_start) = local_midnight(date) else {
+        return;
+    };
+    render_grid(ui, events, day_start, now);
 }
 
 fn paint_all_day(
@@ -133,8 +153,12 @@ fn event_tooltip(event: &CalendarEvent) -> String {
     )
 }
 
-fn render_grid(ui: &mut egui::Ui, events: &[CalendarEvent], now: DateTime<Local>) {
-    let day_start = today_start();
+fn render_grid(
+    ui: &mut egui::Ui,
+    events: &[CalendarEvent],
+    day_start: DateTime<Local>,
+    now: Option<DateTime<Local>>,
+) {
     let hour_of = |t: DateTime<Local>| (t - day_start).num_seconds() as f32 / 3600.0;
     let timed: Vec<(&CalendarEvent, f32, f32)> = events
         .iter()
@@ -174,7 +198,7 @@ fn render_grid(ui: &mut egui::Ui, events: &[CalendarEvent], now: DateTime<Local>
             first_hour,
             last_hour,
         };
-        paint_grid(ui, &grid, &timed, &spans, hour_of(now), now);
+        paint_grid(ui, &grid, &timed, &spans, now.map(hour_of), now);
     });
 }
 
@@ -197,8 +221,8 @@ fn paint_grid(
     grid: &Grid,
     timed: &[(&CalendarEvent, f32, f32)],
     spans: &[(f32, f32)],
-    now_hour: f32,
-    now: DateTime<Local>,
+    now_hour: Option<f32>,
+    now: Option<DateTime<Local>>,
 ) {
     let rect = grid.rect;
     let painter = ui.painter_at(rect);
@@ -227,7 +251,7 @@ fn paint_grid(
             egui::pos2(x, y(*start) + 1.0),
             egui::pos2(x + width - 2.0, y(*end) - 1.0),
         );
-        paint_event(&painter, block, event, event.end <= now, panel_fill);
+        paint_event(&painter, block, event, finished(event, now), panel_fill);
         ui.interact(
             block,
             ui.id().with(("calendar_event", index)),
@@ -236,7 +260,9 @@ fn paint_grid(
         .on_hover_text(event_tooltip(event));
     }
 
-    if (grid.first_hour..=grid.last_hour).contains(&now_hour) {
+    if let Some(now_hour) =
+        now_hour.filter(|hour| (grid.first_hour..=grid.last_hour).contains(hour))
+    {
         let now_y = y(now_hour);
         painter.hline(left - 2.0..=rect.right(), now_y, (2.0, ERROR_COLOR));
         painter.circle_filled(egui::pos2(left - 2.0, now_y), 4.0, ERROR_COLOR);
@@ -367,7 +393,7 @@ mod tests {
 
     #[test]
     fn header_shows_the_data_age() {
-        let day = CalendarContent::Day(CalendarDay::default());
+        let day = CalendarContent::Days(crate::calendar::CalendarDays::default());
         let label = |age, refreshing| freshness_label(&day, &freshness(age, refreshing));
         assert_eq!(label(Some(30), false).as_deref(), Some("updated just now"));
         assert_eq!(

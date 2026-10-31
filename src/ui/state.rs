@@ -4,7 +4,7 @@
 //! independently of the GUI framework for testability.
 
 use crate::calendar::cache::CalendarCache;
-use crate::calendar::{CalendarContent, CalendarDay};
+use crate::calendar::{window_range, CalendarContent, CalendarDays};
 use crate::config::BrowserOption;
 use crate::launcher::browser_picker::BrowserPicker;
 use crate::launcher::grocery_picker::{GroceryPicker, GroceryRow};
@@ -14,6 +14,9 @@ use crate::launcher::{
     eval_calc_input, filter_items, is_file_path, order_recent_keys, CalcResult, ListItem,
 };
 use crate::paprika::GroceryCommand;
+use crate::ui::calendar::Freshness;
+use chrono::NaiveDate;
+use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
@@ -78,14 +81,34 @@ pub struct WindowState {
     pub calendar_open: bool,
     pub calendar: CalendarContent,
     pub calendar_refreshing: bool,
+    pub calendar_date: NaiveDate,
     calendar_fetched_at: Option<SystemTime>,
+    on_demand_days: BTreeMap<NaiveDate, OnDemandDay>,
     action_tx: Sender<String>,
     action_rx: Receiver<String>,
     grocery_tx: Sender<Result<Vec<String>, String>>,
     grocery_rx: Receiver<Result<Vec<String>, String>>,
     calendar_tx: Sender<Result<CalendarContent, String>>,
     calendar_rx: Receiver<Result<CalendarContent, String>>,
+    day_tx: Sender<(NaiveDate, Result<CalendarContent, String>)>,
+    day_rx: Receiver<(NaiveDate, Result<CalendarContent, String>)>,
     pending_actions: usize,
+}
+
+struct OnDemandDay {
+    content: CalendarContent,
+    fetched_at: Option<SystemTime>,
+    fetching: bool,
+}
+
+impl OnDemandDay {
+    fn needs_fetch(&self) -> bool {
+        let fresh = self
+            .fetched_at
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age < CALENDAR_FRESH_FOR);
+        !self.fetching && !fresh
+    }
 }
 
 impl WindowState {
@@ -93,6 +116,7 @@ impl WindowState {
         let (action_tx, action_rx) = channel();
         let (grocery_tx, grocery_rx) = channel();
         let (calendar_tx, calendar_rx) = channel();
+        let (day_tx, day_rx) = channel();
         let mut s = Self {
             input: String::new(),
             selected: 0,
@@ -109,13 +133,17 @@ impl WindowState {
             calendar_open: false,
             calendar: CalendarContent::Loading,
             calendar_refreshing: false,
+            calendar_date: crate::calendar::today(),
             calendar_fetched_at: None,
+            on_demand_days: BTreeMap::new(),
             action_tx,
             action_rx,
             grocery_tx,
             grocery_rx,
             calendar_tx,
             calendar_rx,
+            day_tx,
+            day_rx,
             pending_actions: 0,
         };
         s.update_filtered_count();
@@ -134,6 +162,7 @@ impl WindowState {
         self.grocery_picker = None;
         self.error = None;
         self.calendar_open = false;
+        self.calendar_date = crate::calendar::today();
         self.update_filtered_count();
     }
 
@@ -242,7 +271,7 @@ impl WindowState {
                 }
                 Err(message) => {
                     if self.calendar == CalendarContent::Loading {
-                        self.calendar = CalendarContent::Day(CalendarDay::default());
+                        self.calendar = CalendarContent::Days(CalendarDays::default());
                     }
                     self.calendar_fetched_at = None;
                     if self.calendar_open {
@@ -251,10 +280,47 @@ impl WindowState {
                 }
             }
         }
+        while let Ok((date, result)) = self.day_rx.try_recv() {
+            self.pending_actions = self.pending_actions.saturating_sub(1);
+            self.receive_day(date, result);
+        }
+    }
+
+    fn receive_day(&mut self, date: NaiveDate, result: Result<CalendarContent, String>) {
+        if !self.calendar_open || date != self.calendar_date {
+            self.on_demand_days.remove(&date);
+            return;
+        }
+        let Some(day) = self.on_demand_days.get_mut(&date) else {
+            return;
+        };
+        day.fetching = false;
+        let error = match result {
+            Ok(content) => {
+                day.content = content;
+                day.fetched_at = Some(SystemTime::now());
+                match &day.content {
+                    CalendarContent::Days(days) if !days.errors.is_empty() => {
+                        Some(days.errors.join("\n"))
+                    }
+                    _ => None,
+                }
+            }
+            Err(message) => {
+                if day.content == CalendarContent::Loading {
+                    day.content = CalendarContent::Days(CalendarDays::default());
+                }
+                day.fetched_at = None;
+                Some(message)
+            }
+        };
+        if let Some(error) = error {
+            self.set_error(error);
+        }
     }
 
     fn show_calendar_errors(&mut self) {
-        if let CalendarContent::Day(day) = &self.calendar {
+        if let CalendarContent::Days(day) = &self.calendar {
             if self.calendar_open && !day.errors.is_empty() {
                 self.set_error(day.errors.join("\n"));
             }
@@ -281,6 +347,7 @@ impl WindowState {
             return;
         }
         self.calendar_open = true;
+        self.calendar_date = crate::calendar::today();
         self.show_calendar_errors();
         let fresh = self
             .calendar_age()
@@ -290,6 +357,57 @@ impl WindowState {
         }
         self.calendar_refreshing = true;
         self.spawn_result(self.calendar_tx.clone(), fetch);
+    }
+
+    pub fn step_calendar_day<F>(&mut self, days: i64, fetch: F)
+    where
+        F: FnOnce(NaiveDate) -> anyhow::Result<CalendarContent> + Send + 'static,
+    {
+        let Some(date) = self
+            .calendar_date
+            .checked_add_signed(chrono::Duration::days(days))
+            .filter(|_| days != 0)
+        else {
+            return;
+        };
+        self.calendar_date = date;
+        let (first, last) = window_range(crate::calendar::today());
+        if (first..=last).contains(&date) || self.calendar == CalendarContent::NotConfigured {
+            return;
+        }
+        let day = self.on_demand_days.entry(date).or_insert(OnDemandDay {
+            content: CalendarContent::Loading,
+            fetched_at: None,
+            fetching: false,
+        });
+        if !day.needs_fetch() {
+            return;
+        }
+        day.fetching = true;
+        self.pending_actions += 1;
+        let tx = self.day_tx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send((date, fetch(date).map_err(|e| format!("{e:#}"))));
+        });
+    }
+
+    pub fn viewed_calendar(&self) -> (&CalendarContent, Freshness) {
+        match self.on_demand_days.get(&self.calendar_date) {
+            Some(day) => (
+                &day.content,
+                Freshness {
+                    age: day.fetched_at.and_then(|at| at.elapsed().ok()),
+                    refreshing: day.fetching,
+                },
+            ),
+            None => (
+                &self.calendar,
+                Freshness {
+                    age: self.calendar_age(),
+                    refreshing: self.calendar_refreshing,
+                },
+            ),
+        }
     }
 
     pub fn calendar_age(&self) -> Option<Duration> {
@@ -1530,21 +1648,24 @@ mod tests {
         state.toggle_calendar(|| anyhow::bail!("Calendar 'work': boom"));
         settle(&mut state);
         assert_eq!(state.error.as_deref(), Some("Calendar 'work': boom"));
-        assert_eq!(state.calendar, CalendarContent::Day(CalendarDay::default()));
+        assert_eq!(
+            state.calendar,
+            CalendarContent::Days(CalendarDays::default())
+        );
     }
 
     #[test]
     fn failed_accounts_show_in_the_banner_beside_rendered_ones() {
         let mut state = WindowState::new(sample_items(), vec![]);
         state.show();
-        let day = CalendarDay {
+        let day = CalendarDays {
             errors: vec![
                 "Calendar 'work': boom".to_string(),
                 "Calendar 'family': bang".to_string(),
             ],
-            ..CalendarDay::default()
+            ..CalendarDays::default()
         };
-        let fetched = CalendarContent::Day(day);
+        let fetched = CalendarContent::Days(day);
         let expected = fetched.clone();
         state.toggle_calendar(move || Ok(fetched));
         settle(&mut state);
@@ -1579,9 +1700,9 @@ mod tests {
     }
 
     fn day_with_errors(errors: &[&str]) -> CalendarContent {
-        CalendarContent::Day(CalendarDay {
+        CalendarContent::Days(CalendarDays {
             errors: errors.iter().map(|e| e.to_string()).collect(),
-            ..CalendarDay::default()
+            ..CalendarDays::default()
         })
     }
 
@@ -1673,6 +1794,185 @@ mod tests {
         state.restore_calendar(None);
         assert_eq!(state.calendar, CalendarContent::Loading);
         assert!(state.calendar_age().is_none());
+    }
+
+    fn days_from_today(state: &WindowState) -> i64 {
+        (state.calendar_date - crate::calendar::today()).num_days()
+    }
+
+    fn no_fetch(_: NaiveDate) -> anyhow::Result<CalendarContent> {
+        panic!("this step must not fetch")
+    }
+
+    fn state_with_window_loaded() -> WindowState {
+        let mut state = WindowState::new(sample_items(), vec![]);
+        state.show();
+        state.toggle_calendar(|| Ok(day_with_errors(&[])));
+        settle(&mut state);
+        state
+    }
+
+    fn day_with_event(date: NaiveDate, title: &str) -> CalendarContent {
+        let start = crate::calendar::local_midnight(date).unwrap() + chrono::Duration::hours(9);
+        let event = crate::calendar::CalendarEvent {
+            title: title.to_string(),
+            start,
+            end: start + chrono::Duration::hours(1),
+            all_day: false,
+            colour: crate::calendar::EventColour {
+                background: [0, 0, 255],
+                foreground: [255, 255, 255],
+            },
+        };
+        CalendarContent::Days(CalendarDays {
+            days: BTreeMap::from([(date, vec![event])]),
+            errors: vec![],
+        })
+    }
+
+    fn viewed(state: &WindowState) -> &CalendarContent {
+        state.viewed_calendar().0
+    }
+
+    fn assert_viewing(state: &WindowState, title: &str) {
+        assert_eq!(*viewed(state), day_with_event(state.calendar_date, title));
+    }
+
+    #[test]
+    fn calendar_opens_on_today_and_steps_a_day_at_a_time() {
+        let mut state = state_with_calendar_open();
+        assert_eq!(days_from_today(&state), 0);
+        state.step_calendar_day(1, no_fetch);
+        state.step_calendar_day(1, no_fetch);
+        assert_eq!(days_from_today(&state), 2);
+        state.step_calendar_day(-1, no_fetch);
+        assert_eq!(days_from_today(&state), 1);
+        settle(&mut state);
+    }
+
+    #[test]
+    fn stepping_within_the_window_does_not_fetch() {
+        let mut state = state_with_window_loaded();
+        state.step_calendar_day(5, no_fetch);
+        state.step_calendar_day(-6, no_fetch);
+        state.step_calendar_day(0, no_fetch);
+        assert_eq!(days_from_today(&state), -1);
+        assert!(!state.has_pending_actions());
+        assert!(!state.calendar_refreshing);
+    }
+
+    #[test]
+    fn stepping_past_the_window_loads_that_day_in_the_background() {
+        let mut state = state_with_window_loaded();
+        let window = state.calendar.clone();
+        state.step_calendar_day(6, |date| Ok(day_with_event(date, "Offsite")));
+        assert_eq!(days_from_today(&state), 6);
+        assert_eq!(*viewed(&state), CalendarContent::Loading);
+        settle(&mut state);
+        assert_viewing(&state, "Offsite");
+        assert!(state.viewed_calendar().1.age.is_some());
+        assert_eq!(state.calendar, window);
+    }
+
+    #[test]
+    fn stepping_before_the_window_loads_that_day_too() {
+        let mut state = state_with_window_loaded();
+        state.step_calendar_day(-2, |date| Ok(day_with_event(date, "Retro")));
+        settle(&mut state);
+        assert_eq!(days_from_today(&state), -2);
+        assert_viewing(&state, "Retro");
+    }
+
+    #[test]
+    fn on_demand_day_is_kept_in_memory_for_five_minutes() {
+        let mut state = state_with_window_loaded();
+        state.step_calendar_day(6, |date| Ok(day_with_event(date, "Offsite")));
+        settle(&mut state);
+        state.step_calendar_day(-1, no_fetch);
+        state.step_calendar_day(1, no_fetch);
+        assert!(!state.has_pending_actions());
+        assert_viewing(&state, "Offsite");
+    }
+
+    #[test]
+    fn stale_on_demand_day_refetches_while_still_showing() {
+        let mut state = state_with_window_loaded();
+        state.step_calendar_day(6, |date| Ok(day_with_event(date, "Offsite")));
+        settle(&mut state);
+        let date = state.calendar_date;
+        state.on_demand_days.get_mut(&date).unwrap().fetched_at =
+            SystemTime::now().checked_sub(CALENDAR_FRESH_FOR);
+        state.step_calendar_day(-1, no_fetch);
+        state.step_calendar_day(1, |date| Ok(day_with_event(date, "Moved")));
+        assert_eq!(*viewed(&state), day_with_event(date, "Offsite"));
+        assert!(state.viewed_calendar().1.refreshing);
+        settle(&mut state);
+        assert_eq!(*viewed(&state), day_with_event(date, "Moved"));
+    }
+
+    #[test]
+    fn result_for_a_day_no_longer_viewed_is_dropped() {
+        let mut state = state_with_window_loaded();
+        state.step_calendar_day(6, |date| Ok(day_with_event(date, "Offsite")));
+        state.step_calendar_day(-1, no_fetch);
+        settle(&mut state);
+        assert!(state.on_demand_days.is_empty());
+        state.step_calendar_day(1, |date| Ok(day_with_event(date, "Offsite")));
+        assert_eq!(*viewed(&state), CalendarContent::Loading);
+        settle(&mut state);
+    }
+
+    #[test]
+    fn failed_on_demand_fetch_shows_error_and_keeps_navigation_working() {
+        let mut state = state_with_window_loaded();
+        state.step_calendar_day(6, |_| anyhow::bail!("offline"));
+        settle(&mut state);
+        assert_eq!(state.error.as_deref(), Some("offline"));
+        let empty = CalendarContent::Days(CalendarDays::default());
+        assert_eq!(*viewed(&state), empty);
+        state.step_calendar_day(1, |date| Ok(day_with_event(date, "Offsite")));
+        settle(&mut state);
+        assert_eq!(days_from_today(&state), 7);
+        assert_viewing(&state, "Offsite");
+        state.step_calendar_day(-1, |date| Ok(day_with_event(date, "Back online")));
+        settle(&mut state);
+        assert_viewing(&state, "Back online");
+    }
+
+    #[test]
+    fn on_demand_account_errors_show_in_the_banner() {
+        let mut state = state_with_window_loaded();
+        state.step_calendar_day(6, |_| Ok(day_with_errors(&["Calendar 'work': boom"])));
+        settle(&mut state);
+        assert_eq!(state.error.as_deref(), Some("Calendar 'work': boom"));
+    }
+
+    #[test]
+    fn unconfigured_calendar_does_not_fetch_outside_the_window() {
+        let mut state = state_with_calendar_open();
+        settle(&mut state);
+        state.step_calendar_day(10, no_fetch);
+        assert!(!state.has_pending_actions());
+        assert_eq!(*viewed(&state), CalendarContent::NotConfigured);
+    }
+
+    #[test]
+    fn reopening_the_calendar_returns_to_today() {
+        let mut state = state_with_calendar_open();
+        settle(&mut state);
+        state.step_calendar_day(2, no_fetch);
+        state.toggle_calendar(|| panic!("closing must not fetch"));
+        state.toggle_calendar(|| panic!("fresh cache must not refetch"));
+        assert_eq!(days_from_today(&state), 0);
+    }
+
+    #[test]
+    fn reshowing_the_launcher_returns_to_today() {
+        let mut state = state_with_calendar_open();
+        settle(&mut state);
+        state.step_calendar_day(-1, no_fetch);
+        state.show();
+        assert_eq!(days_from_today(&state), 0);
     }
 
     #[test]

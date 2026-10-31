@@ -27,7 +27,7 @@ fn load_from(path: &Path) -> Option<CalendarCache> {
 }
 
 fn save_to(path: &Path, content: &CalendarContent) {
-    if !matches!(content, CalendarContent::Day(_)) {
+    if !matches!(content, CalendarContent::Days(_)) {
         let _ = fs::remove_file(path);
         return;
     }
@@ -59,7 +59,8 @@ pub fn clear() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::calendar::{CalendarDay, CalendarEvent, EventColour};
+    use crate::calendar::{local_midnight, today, CalendarDays, CalendarEvent, EventColour};
+    use std::collections::BTreeMap;
     use std::time::Duration;
 
     fn temp_path(name: &str) -> PathBuf {
@@ -70,20 +71,37 @@ mod tests {
     }
 
     fn day() -> CalendarContent {
-        let start = crate::calendar::today_start() + chrono::Duration::hours(9);
-        CalendarContent::Day(CalendarDay {
-            events: vec![CalendarEvent {
-                title: "Standup".to_string(),
-                start,
-                end: start + chrono::Duration::minutes(15),
-                all_day: false,
-                colour: EventColour {
-                    background: [1, 2, 3],
-                    foreground: [4, 5, 6],
-                },
-            }],
+        let start = local_midnight(today()).unwrap() + chrono::Duration::hours(9);
+        let standup = CalendarEvent {
+            title: "Standup".to_string(),
+            start,
+            end: start + chrono::Duration::minutes(15),
+            all_day: false,
+            colour: EventColour {
+                background: [1, 2, 3],
+                foreground: [4, 5, 6],
+            },
+        };
+        CalendarContent::Days(CalendarDays {
+            days: BTreeMap::from([
+                (today(), vec![standup]),
+                (today().succ_opt().unwrap(), Vec::new()),
+            ]),
             errors: vec!["Calendar 'work': boom".to_string()],
         })
+    }
+
+    #[test]
+    fn single_day_cache_from_an_older_version_loads_nothing() {
+        let path = temp_path("single-day");
+        save_to(&path, &CalendarContent::Days(CalendarDays::default()));
+        assert!(load_from(&path).is_some());
+        let current = fs::read_to_string(&path).unwrap();
+        let old = current.replace("!Days\n  days: {}", "!Day\n  events: []");
+        assert_ne!(old, current);
+        fs::write(&path, old).unwrap();
+        assert!(load_from(&path).is_none());
+        let _ = fs::remove_file(path);
     }
 
     #[test]
