@@ -9,5 +9,5 @@ if [ -f "$PLIST" ]; then
     launchctl bootstrap "$DOMAIN" "$PLIST" && exit 0
 fi
 
-env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" SHELL="$SHELL" TMPDIR="$TMPDIR" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" SHELL="$SHELL" TMPDIR="$TMPDIR" SSH_AUTH_SOCK="$SSH_AUTH_SOCK" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     nohup "$DIR/project-switch-hotkey" >/dev/null 2>&1 &
