@@ -1,12 +1,13 @@
 #!/bin/sh
 DIR="$(cd "$(dirname "$0")" && pwd)"
+LABEL=com.projectswitch.hotkey
+DOMAIN="gui/$(id -u)"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-scrub_inherited_claude_session_env() {
-    for var in $(env | sed -n 's/^\(CLAUDE[A-Za-z0-9_]*\)=.*/\1/p'); do
-        unset "$var"
-    done
-}
+if [ -f "$PLIST" ]; then
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+    launchctl bootstrap "$DOMAIN" "$PLIST" && exit 0
+fi
 
-scrub_inherited_claude_session_env
-
-nohup "$DIR/project-switch-hotkey" >/dev/null 2>&1 &
+env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" SHELL="$SHELL" TMPDIR="$TMPDIR" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    nohup "$DIR/project-switch-hotkey" >/dev/null 2>&1 &
