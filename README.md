@@ -138,7 +138,7 @@ A command's `browser` can be a list of `{label, value}` entries instead of a sin
 ```yaml
 global:
   - key: member-dev
-    url: https://member.dev.apm-bl.com/
+    url: https://member.dev.example/
     browser:
       - label: integrator
         value: firefox -P integrator
