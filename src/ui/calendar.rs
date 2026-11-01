@@ -7,6 +7,7 @@ use std::time::Duration;
 pub const SIDEBAR_WIDTH: f32 = 300.0;
 const FIRST_HOUR: f32 = 8.0;
 const LAST_HOUR: f32 = 18.0;
+const HOURS_IN_DAY: f32 = 24.0;
 const GUTTER: f32 = 36.0;
 const GRID_TOP: f32 = 8.0;
 const GRID_BOTTOM: f32 = 4.0;
@@ -136,14 +137,6 @@ fn rgb([r, g, b]: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
-fn hour_range(spans: &[(f32, f32)]) -> (f32, f32) {
-    spans
-        .iter()
-        .fold((FIRST_HOUR, LAST_HOUR), |(first, last), &(start, end)| {
-            (first.min(start.floor()), last.max(end.ceil()))
-        })
-}
-
 fn event_tooltip(event: &CalendarEvent) -> String {
     format!(
         "{}\n{} – {}",
@@ -167,24 +160,23 @@ fn render_grid(
             (
                 event,
                 hour_of(event.start).max(0.0),
-                hour_of(event.end).min(24.0),
+                hour_of(event.end).min(HOURS_IN_DAY),
             )
         })
         .filter(|(_, start, end)| end > start)
         .collect();
     let spans: Vec<(f32, f32)> = timed.iter().map(|&(_, s, e)| (s, e)).collect();
-    let (first_hour, last_hour) = hour_range(&spans);
     let per_hour = (ui.available_height() - GRID_TOP - GRID_BOTTOM) / (LAST_HOUR - FIRST_HOUR);
-    let height = GRID_TOP + (last_hour - first_hour) * per_hour + GRID_BOTTOM;
+    let height = GRID_TOP + HOURS_IN_DAY * per_hour + GRID_BOTTOM;
 
-    let salt = ("calendar_grid", first_hour as u32, last_hour as u32);
+    let salt = "calendar_grid";
     let positioned = ui.id().with(salt);
     let mut scroll = egui::ScrollArea::vertical()
         .id_salt(salt)
         .auto_shrink(false);
     if ui.ctx().data(|d| d.get_temp::<bool>(positioned)).is_none() {
         ui.ctx().data_mut(|d| d.insert_temp(positioned, true));
-        scroll = scroll.vertical_scroll_offset((FIRST_HOUR - first_hour) * per_hour);
+        scroll = scroll.vertical_scroll_offset(FIRST_HOUR * per_hour);
     }
     scroll.show(ui, |ui| {
         let (rect, _) = ui.allocate_exact_size(
@@ -195,8 +187,6 @@ fn render_grid(
             rect,
             top: rect.top() + GRID_TOP,
             per_hour,
-            first_hour,
-            last_hour,
         };
         paint_grid(ui, &grid, &timed, &spans, now.map(hour_of), now);
     });
@@ -206,13 +196,11 @@ struct Grid {
     rect: egui::Rect,
     top: f32,
     per_hour: f32,
-    first_hour: f32,
-    last_hour: f32,
 }
 
 impl Grid {
     fn y(&self, hour: f32) -> f32 {
-        self.top + (hour - self.first_hour) * self.per_hour
+        self.top + hour * self.per_hour
     }
 }
 
@@ -229,7 +217,7 @@ fn paint_grid(
     let y = |hour: f32| grid.y(hour);
     let left = rect.left() + GUTTER;
 
-    for hour in grid.first_hour as u32..=grid.last_hour as u32 {
+    for hour in 0..=HOURS_IN_DAY as u32 {
         let line_y = y(hour as f32);
         painter.hline(left - 4.0..=rect.right(), line_y, (1.0, HOUR_LINE_COLOR));
         painter.text(
@@ -260,9 +248,7 @@ fn paint_grid(
         .on_hover_text(event_tooltip(event));
     }
 
-    if let Some(now_hour) =
-        now_hour.filter(|hour| (grid.first_hour..=grid.last_hour).contains(hour))
-    {
+    if let Some(now_hour) = now_hour {
         let now_y = y(now_hour);
         painter.hline(left - 2.0..=rect.right(), now_y, (2.0, ERROR_COLOR));
         painter.circle_filled(egui::pos2(left - 2.0, now_y), 4.0, ERROR_COLOR);
@@ -406,16 +392,6 @@ mod tests {
             freshness_label(&CalendarContent::Loading, &freshness(None, true)),
             None
         );
-    }
-
-    #[test]
-    fn grid_stays_at_working_hours_when_events_fit() {
-        assert_eq!(hour_range(&[(9.0, 10.5), (17.0, 18.0)]), (8.0, 18.0));
-    }
-
-    #[test]
-    fn grid_grows_to_cover_early_and_late_events() {
-        assert_eq!(hour_range(&[(6.5, 7.0), (19.25, 20.5)]), (6.0, 21.0));
     }
 
     #[test]
