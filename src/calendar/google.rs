@@ -161,12 +161,16 @@ struct CalendarListEntry {
     background_color: Option<String>,
     #[serde(default)]
     selected: bool,
+    #[serde(default)]
+    primary: bool,
+}
+
+fn parse_calendar_list(body: &str) -> Result<CalendarListResponse> {
+    serde_json::from_str(body).context("Google sent an unreadable calendar list")
 }
 
 pub fn parse_selected_calendars(body: &str) -> Result<Vec<CalendarInfo>> {
-    let response: CalendarListResponse =
-        serde_json::from_str(body).context("Google sent an unreadable calendar list")?;
-    Ok(response
+    Ok(parse_calendar_list(body)?
         .items
         .into_iter()
         .filter(|entry| entry.selected)
@@ -175,6 +179,27 @@ pub fn parse_selected_calendars(body: &str) -> Result<Vec<CalendarInfo>> {
             id: entry.id,
         })
         .collect())
+}
+
+pub fn parse_account_email(body: &str) -> Result<Option<String>> {
+    Ok(parse_calendar_list(body)?
+        .items
+        .into_iter()
+        .find(|entry| entry.primary)
+        .map(|entry| entry.id))
+}
+
+pub fn with_authuser(link: &str, email: &str) -> String {
+    let (base, fragment) = link
+        .split_once('#')
+        .map_or((link, None), |(base, fragment)| (base, Some(fragment)));
+    let separator = if base.contains('?') { '&' } else { '?' };
+    let mut url = format!("{base}{separator}authuser={}", urlencoding::encode(email));
+    if let Some(fragment) = fragment {
+        url.push('#');
+        url.push_str(fragment);
+    }
+    url
 }
 
 #[derive(Deserialize)]
@@ -269,12 +294,14 @@ pub fn fetch_events(
 ) -> Result<Vec<CalendarEvent>> {
     let agent = agent();
     let access_token = refresh_access_token(&agent, client, label, refresh_token)?;
-    let calendars = parse_selected_calendars(&get(
+    let calendar_list = get(
         &agent,
         &access_token,
         &format!("{API_URL}/users/me/calendarList"),
         &[("maxResults", "250")],
-    )?)?;
+    )?;
+    let calendars = parse_selected_calendars(&calendar_list)?;
+    let email = parse_account_email(&calendar_list)?;
     let (time_min, time_max) = (start.to_rfc3339(), end.to_rfc3339());
     let mut events = Vec::new();
     for calendar in &calendars {
@@ -294,6 +321,14 @@ pub fn fetch_events(
             ],
         )?;
         events.extend(parse_events(&body, calendar)?);
+    }
+    if let Some(email) = email {
+        for event in &mut events {
+            event.link = event
+                .link
+                .as_deref()
+                .map(|link| with_authuser(link, &email));
+        }
     }
     Ok(events)
 }
@@ -386,6 +421,36 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 10, 30).unwrap()
         );
         assert_eq!(events[2].start.time(), chrono::NaiveTime::MIN);
+    }
+
+    #[test]
+    fn account_email_is_the_primary_calendar_id() {
+        assert_eq!(
+            parse_account_email(CALENDAR_LIST).unwrap().as_deref(),
+            Some("me@makerx.com.au")
+        );
+        let no_primary =
+            r#"{"items": [{"id": "team@group.calendar.google.com", "selected": true}]}"#;
+        assert_eq!(parse_account_email(no_primary).unwrap(), None);
+    }
+
+    #[test]
+    fn authuser_is_appended_to_the_link() {
+        assert_eq!(
+            with_authuser(
+                "https://www.google.com/calendar/event?eid=c3RhbmR1cA",
+                "me+cal@makerx.com.au"
+            ),
+            "https://www.google.com/calendar/event?eid=c3RhbmR1cA&authuser=me%2Bcal%40makerx.com.au"
+        );
+        assert_eq!(
+            with_authuser("https://calendar.google.com/event", "a@b.com"),
+            "https://calendar.google.com/event?authuser=a%40b.com"
+        );
+        assert_eq!(
+            with_authuser("https://calendar.google.com/event?eid=x#top", "a@b.com"),
+            "https://calendar.google.com/event?eid=x&authuser=a%40b.com#top"
+        );
     }
 
     #[test]

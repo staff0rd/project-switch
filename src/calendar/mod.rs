@@ -324,6 +324,28 @@ mod tests {
         assert_eq!(events.len(), 1);
     }
 
+    #[test]
+    fn shared_meeting_keeps_the_first_accounts_link() {
+        let linked = |colour, link: &str| CalendarEvent {
+            link: Some(link.to_string()),
+            ..event("Offsite", 9, colour)
+        };
+        let (events, _) = merge_accounts(vec![
+            (
+                "work",
+                account(vec![linked(BLUE, "eid=1&authuser=work%40x")]),
+            ),
+            (
+                "personal",
+                account(vec![linked(GREEN, "eid=2&authuser=me%40y")]),
+            ),
+        ]);
+        assert_eq!(
+            (events[0].colour, events[0].link.as_deref()),
+            (BLUE, Some("eid=1&authuser=work%40x"))
+        );
+    }
+
     fn titles_on(days: &BTreeMap<NaiveDate, Vec<CalendarEvent>>, day: u32) -> Vec<&str> {
         days[&date(day)].iter().map(|e| e.title.as_str()).collect()
     }
