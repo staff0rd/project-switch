@@ -42,7 +42,7 @@ pub fn render_sidebar(
     content: &CalendarContent,
     date: NaiveDate,
     freshness: &Freshness,
-) {
+) -> Option<String> {
     let now = Local::now();
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -63,11 +63,17 @@ pub fn render_sidebar(
     });
     ui.separator();
     match content {
-        CalendarContent::Loading => gray_label(ui, "Loading calendar..."),
-        CalendarContent::NotConfigured => render_setup(ui),
+        CalendarContent::Loading => {
+            gray_label(ui, "Loading calendar...");
+            None
+        }
+        CalendarContent::NotConfigured => {
+            render_setup(ui);
+            None
+        }
         CalendarContent::Days(days) => {
             let viewed_now = (date == now.date_naive()).then_some(now);
-            render_day(ui, days.events_on(date), date, viewed_now);
+            render_day(ui, days.events_on(date), date, viewed_now)
         }
     }
 }
@@ -76,25 +82,45 @@ fn finished(event: &CalendarEvent, now: Option<DateTime<Local>>) -> bool {
     now.is_some_and(|now| event.end <= now)
 }
 
+fn event_sense(event: &CalendarEvent) -> egui::Sense {
+    if event.link.is_some() {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    }
+}
+
+fn sense_event(response: egui::Response, event: &CalendarEvent, tooltip: String) -> Option<String> {
+    let response = response.on_hover_text(tooltip);
+    let link = event.link.as_ref()?;
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+        .then(|| link.clone())
+}
+
 fn render_day(
     ui: &mut egui::Ui,
     events: &[CalendarEvent],
     date: NaiveDate,
     now: Option<DateTime<Local>>,
-) {
+) -> Option<String> {
     let panel_fill = ui.visuals().panel_fill;
+    let mut clicked = None;
     for event in events.iter().filter(|event| event.all_day) {
         let (block, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), ALL_DAY_HEIGHT),
-            egui::Sense::hover(),
+            event_sense(event),
         );
         paint_all_day(ui.painter(), block, event, finished(event, now), panel_fill);
-        response.on_hover_text(format!("{}\nAll day", event.title));
+        clicked = clicked.or(sense_event(
+            response,
+            event,
+            format!("{}\nAll day", event.title),
+        ));
     }
-    let Some(day_start) = local_midnight(date) else {
-        return;
-    };
-    render_grid(ui, events, day_start, now);
+    let day_start = local_midnight(date)?;
+    clicked.or(render_grid(ui, events, day_start, now))
 }
 
 fn paint_all_day(
@@ -151,7 +177,7 @@ fn render_grid(
     events: &[CalendarEvent],
     day_start: DateTime<Local>,
     now: Option<DateTime<Local>>,
-) {
+) -> Option<String> {
     let hour_of = |t: DateTime<Local>| (t - day_start).num_seconds() as f32 / 3600.0;
     let timed: Vec<(&CalendarEvent, f32, f32)> = events
         .iter()
@@ -178,18 +204,20 @@ fn render_grid(
         ui.ctx().data_mut(|d| d.insert_temp(positioned, true));
         scroll = scroll.vertical_scroll_offset(FIRST_HOUR * per_hour);
     }
-    scroll.show(ui, |ui| {
-        let (rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), height),
-            egui::Sense::hover(),
-        );
-        let grid = Grid {
-            rect,
-            top: rect.top() + GRID_TOP,
-            per_hour,
-        };
-        paint_grid(ui, &grid, &timed, &spans, now.map(hour_of), now);
-    });
+    scroll
+        .show(ui, |ui| {
+            let (rect, _) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), height),
+                egui::Sense::hover(),
+            );
+            let grid = Grid {
+                rect,
+                top: rect.top() + GRID_TOP,
+                per_hour,
+            };
+            paint_grid(ui, &grid, &timed, &spans, now.map(hour_of), now)
+        })
+        .inner
 }
 
 struct Grid {
@@ -211,7 +239,7 @@ fn paint_grid(
     spans: &[(f32, f32)],
     now_hour: Option<f32>,
     now: Option<DateTime<Local>>,
-) {
+) -> Option<String> {
     let rect = grid.rect;
     let painter = ui.painter_at(rect);
     let y = |hour: f32| grid.y(hour);
@@ -230,6 +258,7 @@ fn paint_grid(
     }
 
     let panel_fill = ui.visuals().panel_fill;
+    let mut clicked = None;
     for (index, ((event, start, end), (column, columns))) in
         timed.iter().zip(side_by_side_columns(spans)).enumerate()
     {
@@ -240,12 +269,12 @@ fn paint_grid(
             egui::pos2(x + width - 2.0, y(*end) - 1.0),
         );
         paint_event(&painter, block, event, finished(event, now), panel_fill);
-        ui.interact(
+        let response = ui.interact(
             block,
             ui.id().with(("calendar_event", index)),
-            egui::Sense::hover(),
-        )
-        .on_hover_text(event_tooltip(event));
+            event_sense(event),
+        );
+        clicked = clicked.or(sense_event(response, event, event_tooltip(event)));
     }
 
     if let Some(now_hour) = now_hour {
@@ -253,6 +282,7 @@ fn paint_grid(
         painter.hline(left - 2.0..=rect.right(), now_y, (2.0, ERROR_COLOR));
         painter.circle_filled(egui::pos2(left - 2.0, now_y), 4.0, ERROR_COLOR);
     }
+    clicked
 }
 
 fn close_cluster(

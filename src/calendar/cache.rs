@@ -81,6 +81,7 @@ mod tests {
                 background: [1, 2, 3],
                 foreground: [4, 5, 6],
             },
+            link: Some("https://www.google.com/calendar/event?eid=abc".to_string()),
         };
         CalendarContent::Days(CalendarDays {
             days: BTreeMap::from([
@@ -111,6 +112,25 @@ mod tests {
         let cache = load_from(&path).unwrap();
         assert_eq!(cache.content, day());
         assert!(cache.fetched_at.elapsed().unwrap() < Duration::from_secs(60));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn events_cached_before_links_load_without_one() {
+        let path = temp_path("no-link");
+        save_to(&path, &day());
+        let current = fs::read_to_string(&path).unwrap();
+        let old: String = current
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("link:"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        assert_ne!(old, current);
+        fs::write(&path, old).unwrap();
+        let CalendarContent::Days(days) = load_from(&path).unwrap().content else {
+            panic!("expected days");
+        };
+        assert_eq!(days.events_on(today())[0].link, None);
         let _ = fs::remove_file(path);
     }
 

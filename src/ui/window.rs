@@ -51,6 +51,18 @@ fn open_path_and_hide(state: &mut WindowState, path: String) {
     state.spawn_action(move || execute_action(&path, BrowserPick::First));
 }
 
+fn open_link_and_hide(state: &mut WindowState, link: String) {
+    state.hide();
+    state.spawn_action(move || {
+        let config_manager = crate::config::ConfigManager::new()?;
+        crate::utils::browser::open_url_in_browser(
+            &link,
+            config_manager.get_default_browser(),
+            false,
+        )
+    });
+}
+
 fn execute_and_hide(state: &mut WindowState, action_input: &str) {
     if action_input.starts_with('=') {
         return;
@@ -391,13 +403,17 @@ pub fn render_launcher(
     fit_window_to_calendar(ui.ctx(), state.calendar_open);
     if state.calendar_open {
         step_calendar_with_alt_arrows(ui, state);
-        egui::Panel::right("calendar_sidebar")
+        let clicked_link = egui::Panel::right("calendar_sidebar")
             .exact_size(SIDEBAR_WIDTH)
             .resizable(false)
             .show(ui, |ui| {
                 let (content, freshness) = state.viewed_calendar();
                 crate::ui::calendar::render_sidebar(ui, content, state.calendar_date, &freshness)
-            });
+            })
+            .inner;
+        if let Some(link) = clicked_link {
+            open_link_and_hide(state, link);
+        }
         ui.ctx().request_repaint_after(NOW_LINE_REFRESH);
     }
 

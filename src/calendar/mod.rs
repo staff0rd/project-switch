@@ -32,6 +32,8 @@ pub struct CalendarEvent {
     pub end: DateTime<Local>,
     pub all_day: bool,
     pub colour: EventColour,
+    #[serde(default)]
+    pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -277,6 +279,7 @@ mod tests {
             end: at(end),
             all_day: false,
             colour: BLUE,
+            link: None,
         }
     }
 

@@ -1823,6 +1823,7 @@ mod tests {
                 background: [0, 0, 255],
                 foreground: [255, 255, 255],
             },
+            link: None,
         };
         CalendarContent::Days(CalendarDays {
             days: BTreeMap::from([(date, vec![event])]),

@@ -192,6 +192,7 @@ struct EventEntry {
     start: Option<EventTime>,
     end: Option<EventTime>,
     event_type: Option<String>,
+    html_link: Option<String>,
     #[serde(default)]
     attendees: Vec<Attendee>,
 }
@@ -253,6 +254,7 @@ pub fn parse_events(body: &str, calendar: &CalendarInfo) -> Result<Vec<CalendarE
                     .as_deref()
                     .and_then(event_colour)
                     .unwrap_or(calendar.colour),
+                link: entry.html_link,
             })
         })
         .collect())
@@ -312,7 +314,7 @@ mod tests {
     const EVENTS: &str = r##"{
       "kind": "calendar#events",
       "items": [
-        {"status": "confirmed", "summary": "Standup", "start": {"dateTime": "2026-10-30T09:15:00+11:00", "timeZone": "Australia/Sydney"}, "end": {"dateTime": "2026-10-30T09:30:00+11:00"}, "recurringEventId": "abc"},
+        {"status": "confirmed", "summary": "Standup", "htmlLink": "https://www.google.com/calendar/event?eid=c3RhbmR1cA", "start": {"dateTime": "2026-10-30T09:15:00+11:00", "timeZone": "Australia/Sydney"}, "end": {"dateTime": "2026-10-30T09:30:00+11:00"}, "recurringEventId": "abc"},
         {"status": "confirmed", "summary": "Client demo", "colorId": "6", "start": {"dateTime": "2026-10-30T02:30:00Z"}, "end": {"dateTime": "2026-10-30T03:30:00Z"}},
         {"status": "confirmed", "summary": "Sprint 42 ends", "start": {"date": "2026-10-30"}, "end": {"date": "2026-10-31"}},
         {"status": "cancelled", "summary": "Moved", "start": {"dateTime": "2026-10-30T10:00:00+11:00"}, "end": {"dateTime": "2026-10-30T11:00:00+11:00"}},
@@ -369,6 +371,11 @@ mod tests {
         assert_eq!(events[0].end, instant("2026-10-29T22:30:00Z"));
         assert!(!events[0].all_day);
         assert_eq!(events[0].colour, primary().colour);
+        assert_eq!(
+            events[0].link.as_deref(),
+            Some("https://www.google.com/calendar/event?eid=c3RhbmR1cA")
+        );
+        assert_eq!(events[1].link, None);
 
         assert_eq!(events[1].start, instant("2026-10-30T13:30:00+11:00"));
         assert_eq!(events[1].colour, event_colour("6").unwrap());
